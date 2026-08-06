@@ -99,6 +99,11 @@ class StateStore:
             self.applied_ids.add(rec.id)
             self.realized.append({
                 "reco_id": rec.id, "rule_name": rec.rule_name, "room": rec.room,
+                # WHICH load this decision was about. Without it, "why is the
+                # dryer off?" can only be matched to a decision by rule name,
+                # which is not a load — so any approved finding answered for
+                # every device, and the dryer got told about the A/C.
+                "load_key": getattr(rec, "load_key", ""),
                 "usd": rec.usd, "kwh": rec.kwh, "co2_kg": rec.co2_kg,
                 "title": rec.title, "ts": time.time(),
                 # An anticipated finding books a PROJECTION — money not spent
@@ -307,6 +312,13 @@ class StateStore:
             "suppressed": list(self.suppressed),
             "considered": self.considered,
             "realized": self.realized_totals(),
+            # The per-decision history, not just the totals. "Why is the A/C
+            # off?" is answerable only from the individual events — which
+            # finding was approved, when, and what the hardware then confirmed.
+            # Publishing only the aggregate left the Q&A tier able to see the
+            # CURRENT state of every load and none of the causes, so it could
+            # say what was off but had to guess why.
+            "realized_events": self.realized[-8:][::-1],
             "actuations": self.actuations[-8:][::-1],
             # Live dataset counters. Surfaced so data collection is visible while
             # it happens — a flywheel the user can watch is worth more than a

@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from datetime import datetime
 from typing import Dict, Generator, List, Optional, Tuple
 
 try:
@@ -49,12 +50,104 @@ SYSTEM_PROMPT = """You answer questions about a home's live energy state.
 
 You are given a DIGEST computed in Python. Every number you may use is in it.
 
+The digest has two parts. The lines above the divider are the state RIGHT NOW.
+The lines under "WHAT HAPPENED" are the causal record, newest first:
+
+  APPROVED   the user accepted a recommendation, and what it saved
+  ACTUATION  a physical switch the hardware confirmed (or reported failed)
+  DECLINED   advice the comfort guardrail refused to offer, and why
+
 RULES:
 - Do NOT do arithmetic. Do NOT invent, restate differently, or round any number.
   Cite figures exactly as they appear in the digest, or omit them.
 - If the digest does not contain what was asked, say so plainly. Do not guess.
 - Answer in at most 3 short sentences. Be direct and practical.
-- Plain prose. No markdown, no JSON, no preamble."""
+- Plain prose. No markdown, no JSON, no preamble.
+
+ANSWERING "WHY" QUESTIONS:
+- Use the causal record. "Why is the A/C off?" is answered by the APPROVED and
+  ACTUATION lines for that load — say which recommendation was accepted, when,
+  and that the hardware confirmed it.
+- Attribute correctly. A load the USER approved turning off was not turned off
+  by the system on its own; say the user accepted it.
+- If a DECLINED line covers what was asked, lead with the reason the guardrail
+  gave. That refusal is a feature, not an omission.
+- If nothing in the record explains it, say the record does not show why rather
+  than constructing a plausible cause. An honest "no record of that" beats an
+  invented reason, and an invented one will be flagged as unverified anyway."""
+
+
+def _clock(ts) -> str:
+    """HH:MM for a timestamp, or '' when it is missing or unusable."""
+    try:
+        return datetime.fromtimestamp(float(ts)).strftime("%H:%M")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return ""
+
+
+def _last_actuation_by_load(state: Dict) -> Dict[str, str]:
+    """{load_key: HH:MM} of the most recent CONFIRMED switch per load.
+
+    `actuations` arrives newest-first, so the first hit per key is the latest.
+    Only successful ones count: a failed switch did not change the world, and
+    quoting its time as the moment something turned off would be wrong.
+    """
+    out: Dict[str, str] = {}
+    for a in (state.get("actuations") or []):
+        key = a.get("load_key")
+        if not key or key in out or a.get("ok") is False:
+            continue
+        when = _clock(a.get("ts"))
+        if when:
+            out[key] = when
+    return out
+
+
+def _history_lines(state: Dict, allowed: Dict[str, str]) -> List[str]:
+    """The CAUSAL record: what was decided, what happened, what was refused.
+
+    WHY THIS EXISTS
+        Everything else in the digest describes the world as it is NOW. That is
+        enough for "what is on?" and useless for "why is the A/C off?" — the
+        model could see the state and had to invent the reason, which the
+        provenance verifier would then flag. Every fact below is already in
+        `public_state()`; none of it was reaching the model.
+
+        This is a CONTEXT fix, not a model fix. No amount of fine-tuning
+        recovers a fact that was never in the prompt.
+    """
+    lines: List[str] = []
+
+    for ev in (state.get("realized_events") or [])[:5]:
+        when = _clock(ev.get("ts"))
+        rid = ev.get("reco_id", "?")
+        if ev.get("usd") is not None:
+            allowed[f"{rid}.realized_usd"] = f"{ev['usd']}"
+        kind = ev.get("kind", "detected")
+        verb = "avoided" if kind == "anticipated" else "saved"
+        lines.append(
+            f"APPROVED {when}: you accepted \"{ev.get('title','')}\" "
+            f"(rule {ev.get('rule_name','?')}, {ev.get('room','')}) — "
+            f"{verb} ${ev.get('usd', 0)}")
+
+    for a in (state.get("actuations") or [])[:5]:
+        when = _clock(a.get("ts"))
+        ok = a.get("ok")
+        result = "confirmed" if ok is not False else "FAILED"
+        lines.append(
+            f"ACTUATION {when}: {a.get('load_key','?')} -> "
+            f"{a.get('state', a.get('action','?'))} {result}"
+            f" (source {a.get('source','?')})")
+
+    for s in (state.get("suppressed") or [])[:4]:
+        if s.get("usd") is not None:
+            allowed[f"{s.get('id','?')}.withheld_usd"] = f"{s['usd']}"
+        lines.append(
+            f"DECLINED: \"{s.get('headline','')}\" was NOT offered — "
+            f"{s.get('reason','')} (gate {s.get('gate','')}, "
+            f"${s.get('usd', 0)} withheld)")
+
+    return lines
 
 
 def _digest_lines(state: Dict) -> Tuple[str, Dict[str, str]]:
@@ -109,11 +202,23 @@ def _digest_lines(state: Dict) -> Tuple[str, Dict[str, str]]:
             bits.append(f"temp source={room['temp_src']}")
         lines.append(f"ROOM {name}: " + ", ".join(bits))
 
+    # Loads carry HOW LONG they have been in their current state. "The A/C is
+    # off" and "the A/C has been off for 23 minutes because you approved it" are
+    # different answers, and only the second one is worth asking a model for.
+    now = state.get("now") or time.time()
+    last_change = _last_actuation_by_load(state)
     for key, load in (state.get("loads") or {}).items():
         w = load.get("watts")
         if w is not None:
             allowed[f"{key}.watts"] = f"{w}"
-        lines.append(f"LOAD {key}: {load.get('state')} at {w} W"
+        since = ""
+        if load.get("state") == "on" and load.get("on_since"):
+            mins = max(0.0, (float(now) - float(load["on_since"]))) / 60.0
+            allowed[f"{key}.on_minutes"] = f"{mins:.0f}"
+            since = f", on for {mins:.0f} min"
+        elif key in last_change:
+            since = f", off since {last_change[key]}"
+        lines.append(f"LOAD {key}: {load.get('state')} at {w} W{since}"
                      + (" (real metered device)" if load.get("metered")
                         else " (simulated)"))
 
@@ -139,10 +244,67 @@ def _digest_lines(state: Dict) -> Tuple[str, Dict[str, str]]:
     if user.get("presence"):
         lines.append(f"USER: presence {user['presence']}")
 
+    history = _history_lines(state, allowed)
+    if history:
+        lines.append("")
+        lines.append("--- WHAT HAPPENED, MOST RECENT FIRST ---")
+        lines.extend(history)
+
     if not lines:
         lines.append("No findings and no live device state.")
 
     return "\n".join(lines), allowed
+
+
+def _load_in_question(q: str, state: Dict) -> Optional[str]:
+    """The load key a question is about, or None.
+
+    Matches on the bare device name ("ac", "lights", "dryer") plus a few words
+    people actually use for them, because nobody types "living/ac".
+    """
+    aliases = {"ac": ("a/c", "ac", "air con", "aircon", "cooling", "hvac"),
+               "heater": ("heater", "heating"),
+               "lights": ("light", "lamp"),
+               "dryer": ("dryer", "laundry"),
+               "standby": ("standby", "phantom", "idle")}
+    for key in (state.get("loads") or {}):
+        name = key.split("/")[-1].lower()
+        for word in aliases.get(name, (name,)):
+            if word in q:
+                return key
+    return None
+
+
+def _explain_load(load_key: str, state: Dict) -> str:
+    """Why is <load> in its current state — from the record, or honestly not."""
+    load = (state.get("loads") or {}).get(load_key) or {}
+    where = load_key.split("/")[-1]
+    now_state = load.get("state", "unknown")
+    verb = "are" if where.endswith("s") else "is"
+
+    # Match the decision to THIS load, by load_key. Anything looser answers the
+    # wrong question confidently, which is the failure mode this whole tier is
+    # supposed to avoid.
+    for ev in (state.get("realized_events") or []):
+        if ev.get("load_key") != load_key:
+            continue
+        act = next((a for a in (state.get("actuations") or [])
+                    if a.get("load_key") == load_key and a.get("ok") is not False),
+                   None)
+        when = _clock(act.get("ts") if act else ev.get("ts"))
+        confirmed = " and the device confirmed the switch" if act else ""
+        return (f"The {where} {verb} {now_state} because you approved "
+                f"\"{ev.get('title','a recommendation')}\" at {when}"
+                f"{confirmed}. It saved ${float(ev.get('usd', 0) or 0):.3f}.")
+
+    for s in (state.get("suppressed") or []):
+        if s.get("load") == where:
+            return (f"The {where} {verb} still {now_state} deliberately: "
+                    f"{s.get('reason','the comfort guardrail declined it')} "
+                    f"(${float(s.get('usd', 0) or 0):.3f} withheld).")
+
+    return (f"The {where} {verb} {now_state}, but the record does not show what "
+            f"changed it — no approval or confirmed switch is logged for it.")
 
 
 def deterministic_answer(question: str, state: Dict) -> str:
@@ -174,6 +336,16 @@ def deterministic_answer(question: str, state: Dict) -> str:
             return (f"Start with: {r.get('title','the largest finding')} "
                     f"— ${float(r.get('usd', 0) or 0):.3f} avoidable.")
         return "Nothing needs action right now."
+
+    # A causal question about a SPECIFIC load, answered from the record.
+    # This has to come before the bill branch below: that branch matches bare
+    # "why", so "why is the A/C off?" used to be answered with the total
+    # avoidable waste — a confident reply to a different question, which is
+    # worse than no reply. This is also the path that runs on stage if GenieX
+    # is down, so it has to hold up on its own.
+    named = _load_in_question(q, state)
+    if named and ("why" in q or " off" in q or " on" in q or "happen" in q):
+        return _explain_load(named, state)
 
     if "bill" in q or "high" in q or "why" in q:
         if recos:
