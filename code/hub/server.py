@@ -61,6 +61,9 @@ class StateStore:
         self.power_history: deque = deque(maxlen=POWER_HISTORY_LEN)
         self.recos: List[Recommendation] = []
         self.last_narrated: Dict[str, float] = {}
+        # Finding ids the rules are firing on RIGHT NOW. Used to expire
+        # anticipated cards — see latest_recos().
+        self.active_finding_ids: set = set()
         self.mqtt_connected = False
         self.sim_clock_offset = 0.0    # simulator can drive a virtual clock
         # Actuation bookkeeping: what the user approved and what physically happened.
@@ -88,6 +91,11 @@ class StateStore:
                 "reco_id": rec.id, "rule_name": rec.rule_name, "room": rec.room,
                 "usd": rec.usd, "kwh": rec.kwh, "co2_kg": rec.co2_kg,
                 "title": rec.title, "ts": time.time(),
+                # An anticipated finding books a PROJECTION — money not spent
+                # rather than money recovered. Both are real savings, but only
+                # one of them was measured, so the two are counted separately
+                # and the dashboard labels them differently.
+                "kind": getattr(rec, "kind", "detected"),
             })
 
     def record_actuation(self, load_key: str, payload: Dict) -> None:
@@ -152,11 +160,16 @@ class StateStore:
 
     def realized_totals(self) -> Dict:
         with self.lock:
+            anticipated = [r for r in self.realized
+                           if r.get("kind") == "anticipated"]
             return {
                 "usd": sum(r["usd"] for r in self.realized),
                 "kwh": sum(r["kwh"] for r in self.realized),
                 "co2_kg": sum(r["co2_kg"] for r in self.realized),
                 "count": len(self.realized),
+                # Split out so a projection is never presented as a measurement.
+                "avoided_usd": sum(r["usd"] for r in anticipated),
+                "avoided_count": len(anticipated),
             }
 
     # -- ingest ------------------------------------------------------------
@@ -242,6 +255,14 @@ class StateStore:
         Rendering the raw tail therefore showed the same recommendation as three
         separate cards. Keep the history intact for the audit trail; collapse it
         here so each distinct finding surfaces once, with its most recent wording.
+
+        An ANTICIPATED card is additionally dropped once its rule stops firing,
+        unless it was acted on. "The dryer will hit the peak rate in 12 minutes —
+        you can still shift it" is useful at 15:48 and a lie at 17:30: by then
+        the money is spent and R6 is the card that applies. Detected findings are
+        left alone here on purpose; their staleness is a broader open question
+        (see the stale-data indicator in the session log) and this is not the
+        change to settle it in.
         """
         with self.lock:
             seen, out = set(), []
@@ -249,6 +270,10 @@ class StateStore:
                 if rec.id in seen:
                     continue
                 seen.add(rec.id)
+                if (getattr(rec, "kind", "detected") == "anticipated"
+                        and rec.id not in self.active_finding_ids
+                        and rec.id not in self.applied_ids):
+                    continue          # the moment to act on this has passed
                 out.append(rec)
                 if len(out) >= limit:
                     break
@@ -381,6 +406,7 @@ def evaluation_tick() -> List[Recommendation]:
     for f in findings:
         offered_by_room.setdefault(f.room, set()).add(f.load_key.split("/")[-1])
     STORE.considered = len(findings) + len(vetoed)
+    STORE.active_finding_ids = {f.id for f in findings}
     for reco_id in STORE.set_suppressed(vetoed, offered_by_room):
         row = next((r for r in STORE.suppressed if r["id"] == reco_id), {})
         RECORDER.veto(reco_id, f"{row.get('room')}/{row.get('load')}",
@@ -654,6 +680,7 @@ def _load_from_rule(rec) -> str:
         "hvac_with_window_open": "ac",
         "phantom_standby": "standby",
         "peak_hour_heavy_load": "dryer",
+        "peak_window_imminent": "dryer",
     }
     return by_rule.get(rec.rule_name, "lights")
 
@@ -679,6 +706,51 @@ def _guardrail_allows(snap: Dict, rec, load_key: str, action: str, now_dt):
                        f"{rules.COMFORT_MIN_C:.0f}°C comfort limit — turning the "
                        f"heater off would make the room uncomfortable.")
     return True, ""
+
+
+@app.post("/api/clock")
+async def api_clock(body: Dict):
+    """Move the virtual clock, so tariff-dependent rules can be demoed on demand.
+
+    R8 only speaks in the 30 minutes before the on-peak boundary, and R6 only
+    inside the window. Without this, showing either one means waiting for the
+    actual wall clock to reach 15:30 — fine for a rehearsal, useless at a demo
+    table with a five-minute slot.
+
+    The offset already existed but was reachable only by publishing
+    `home/context/clock` over MQTT, which means the one rule that most needs
+    driving was the one rule the browser simulator could not drive. Same
+    reasoning as /api/sensor and /api/load: the no-broker path has to be able to
+    exercise the whole engine.
+
+        {"time": "15:48"}   set the virtual clock to this time today
+        {"offset_s": 3600}  shift it by this many seconds
+        {"reset": true}     back to real time
+    """
+    if body.get("reset"):
+        STORE.sim_clock_offset = 0.0
+    elif "offset_s" in body:
+        try:
+            STORE.sim_clock_offset = float(body["offset_s"])
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "offset_s must be a number"}, status_code=400)
+    elif "time" in body:
+        try:
+            hh, mm = str(body["time"]).split(":")
+            target = datetime.now().replace(hour=int(hh), minute=int(mm),
+                                            second=0, microsecond=0)
+        except Exception:
+            return JSONResponse({"error": "time must be 'HH:MM'"}, status_code=400)
+        STORE.sim_clock_offset = target.timestamp() - time.time()
+    else:
+        return JSONResponse({"error": "need time, offset_s or reset"}, status_code=400)
+
+    now_dt = datetime.fromtimestamp(time.time() + STORE.sim_clock_offset)
+    rate, period = _rate(now_dt)
+    print(f"[api] virtual clock -> {now_dt.strftime('%H:%M')} ({period})")
+    return JSONResponse({"ok": True, "clock": now_dt.strftime("%H:%M"),
+                         "period": period, "rate": rate,
+                         "offset_s": round(STORE.sim_clock_offset, 1)})
 
 
 @app.post("/api/feedback")

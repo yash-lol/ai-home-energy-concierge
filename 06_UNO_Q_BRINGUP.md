@@ -248,7 +248,7 @@ Then set the flags at the top of `arduino/sketch/sketch.ino` accordingly:
 > hours if you fight it. **Check, choose, move on.**
 
 Rule R4 (open-window heuristic) is the only thing that degrades without a real DHT22, and
-it is the least important of the seven rules.
+it is the least important of the eight rules.
 
 ---
 

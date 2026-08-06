@@ -65,6 +65,9 @@ class Recommendation:
     evidence: List[str] = field(default_factory=list)
     source: str = ""
     narrated_by: str = "template"   # "llm" or "template" — logged and shown in debug
+    # "detected" = already spent, "anticipated" = still avoidable. Carried through
+    # to the UI because a projected figure must never be shown as an incurred one.
+    kind: str = "detected"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -88,19 +91,27 @@ At most 3 actions. No markdown, no code fences, no commentary outside the JSON."
 def _user_prompt(finding) -> str:
     est = finding.estimate
     evidence = "\n".join(f"- {e}" for e in finding.evidence)
-    return f"""A waste condition was detected in the home.
+    # An anticipated finding has not happened yet. Telling the model "a waste
+    # condition was detected" would have it write about money already spent, and
+    # the whole value of warning early is that the money is still in your pocket.
+    anticipated = getattr(finding, "kind", "detected") == "anticipated"
+    opening = ("A waste condition is ABOUT TO HAPPEN in the home and can still be "
+               "avoided. Nothing has been spent yet — write about preventing it, "
+               "in the future tense. Never say it has already cost anything."
+               if anticipated else "A waste condition was detected in the home.")
+    return f"""{opening}
 
 WHAT THE SENSORS AND RULES FOUND:
 {evidence}
 
 ROOM: {finding.room}
 APPLIANCE: {est.load_label} ({est.watts:.0f} W)
-DURATION: {finding.seconds_wasted/60:.0f} minutes
+DURATION: {finding.seconds_wasted/60:.0f} minutes{" (PROJECTED, not observed)" if anticipated else ""}
 SEVERITY: {finding.severity}
 
 PRE-COMPUTED FIGURES — use verbatim, do not recalculate:
-- energy wasted: {est.kwh:.3f} kWh
-- cost: ${est.usd:.2f}
+- energy {"at stake" if anticipated else "wasted"}: {est.kwh:.3f} kWh
+- cost {"still avoidable" if anticipated else "already incurred"}: ${est.usd:.2f}
 - carbon: {est.co2_kg:.2f} kg CO2
 - current tariff period: {est.period_label} at ${est.rate_used:.2f} per kWh
 
@@ -202,6 +213,7 @@ def _validate(parsed: dict, finding) -> Recommendation:
         formula=est.formula,
         evidence=list(finding.evidence),
         source=est.source,
+        kind=getattr(finding, "kind", "detected"),
     )
 
 
@@ -238,6 +250,13 @@ def template_narrate(finding) -> Recommendation:
         title = "Phantom power while you are out"
         body = (f"Idle devices have drawn {est.kwh:.2f} kWh over {mins/60:.1f} hours away. "
                 f"It is only ${est.usd:.2f} now, but it never stops.")
+    elif finding.rule_name == "peak_window_imminent":
+        # Future tense throughout. This is the one card that describes money the
+        # user still has, so it must never read like a bill.
+        title = "Shift this before the peak rate starts"
+        body = (f"The {load} is running and the expensive 4-9 PM window is about to "
+                f"open. Delaying it until after 9 PM would avoid roughly "
+                f"${est.usd:.2f} — nothing has been spent yet.")
     elif finding.rule_name == "peak_hour_heavy_load":
         title = "Shift this load out of peak hours"
         body = (f"The {load} is running during the 4-9 PM peak window, when power costs "
@@ -262,6 +281,7 @@ def template_narrate(finding) -> Recommendation:
         evidence=list(finding.evidence),
         source=est.source,
         narrated_by="template",
+        kind=getattr(finding, "kind", "detected"),
     )
 
 

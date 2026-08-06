@@ -116,10 +116,10 @@ def bench_energy_model(iterations: int) -> Result:
 
 def bench_rules(iterations: int) -> Result:
     snap = make_snapshot()
-    r = Result("Rules engine (7 rules)", "ms")
+    r = Result("Rules engine (8 rules)", "ms")
     r.samples = timed(lambda: rules.evaluate(snap, EVENING), iterations * 5)
     n = len(rules.evaluate(snap, EVENING))
-    r.note = f"all 7 rules over 1 room / 3 loads -> {n} findings"
+    r.note = f"all 8 rules over 1 room / 3 loads -> {n} findings"
     return r
 
 

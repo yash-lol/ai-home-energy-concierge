@@ -105,7 +105,7 @@ affect us, because our sensor and actuator code is hand-written and tested.
 The code in `code/` is not pseudocode. It was run end-to-end on Windows on Arm:
 
 - **38/38 smoke test checks pass** (`python smoke_test.py`)
-- All **7 rules** fire; the comfort guardrail suppresses advice **and refuses actuation**
+- All **8 rules** fire; the comfort guardrail suppresses advice **and refuses actuation**
 - **Real MQTT** path verified: simulator → broker → hub → rules → narration → dashboard
 - **The full actuation loop verified**: approve → command → UNO Q executes → confirmation
   → saving booked as realized (see `dashboard_actuated.png`)

@@ -308,7 +308,7 @@
       <div class="flow">
         <span>UNO Q senses</span><i>→</i>
         <span>hub fuses context</span><i>→</i>
-        <span>7 rules fire</span><i>→</i>
+        <span>8 rules fire</span><i>→</i>
         <span>Python computes $</span><i>→</i>
         <span>LLM explains</span><i>→</i>
         <span class="act">user approves</span><i>→</i>
@@ -674,7 +674,7 @@ Power figure source:
         </table>
         <div style="display:flex;flex-direction:column;gap:13px">
           <div class="cols c2">
-            <div class="stat g"><div class="label">Smoke test</div><div class="value">32<span class="unit">/32</span></div><div class="foot">arithmetic · all 7 rules · both guardrail layers · every fallback · live server · full actuation loop</div></div>
+            <div class="stat g"><div class="label">Smoke test</div><div class="value">44<span class="unit">/44</span></div><div class="foot">arithmetic · all 8 rules · both guardrail layers · every fallback · live server · full actuation loop</div></div>
             <div class="stat b"><div class="label">Quickstart</div><div class="value">3<span class="unit">cmds</span></div><div class="foot">no hardware needed to see the whole system work</div></div>
           </div>
           <div class="callout">
@@ -726,7 +726,7 @@ Power figure source:
 code/
   hub/
     energy_model.py   all arithmetic, zero I/O
-    rules.py          R1-R7, no LLM
+    rules.py          R1-R8, no LLM
     llm.py            GenieX + deterministic fallback
     server.py         MQTT, fusion, WS, <span class="em">/api/apply</span>
     simulator.py      scripted 90 s demo
@@ -871,7 +871,7 @@ code/
         </div>
       </div>
       <div class="cols c4" style="margin-top:2px">
-        <div class="stat g"><div class="label">Smoke tests</div><div class="value">32<span class="unit">/32</span></div></div>
+        <div class="stat g"><div class="label">Smoke tests</div><div class="value">44<span class="unit">/44</span></div></div>
         <div class="stat b"><div class="label">Rules latency p50</div><div class="value">0.027<span class="unit">ms</span></div></div>
         <div class="stat g"><div class="label">Broker traffic cut</div><div class="value">88.7<span class="unit">%</span></div></div>
         <div class="stat"><div class="label">Quickstart</div><div class="value">3<span class="unit">cmds</span></div></div>

@@ -65,6 +65,28 @@ def rate_at(dt: datetime) -> Tuple[float, str]:
     return OFF_PEAK_USD_PER_KWH, "off_peak"
 
 
+def seconds_to_peak(dt: datetime) -> float:
+    """Seconds until the on-peak window opens. 0.0 if it is already open.
+
+    The tariff calendar is the one thing about the future this system knows for
+    certain — no model, no prediction, just a published schedule. That is what
+    makes warning BEFORE the boundary defensible arithmetic rather than a guess.
+    """
+    if ON_PEAK_START <= dt.time() < ON_PEAK_END:
+        return 0.0
+    start_today = dt.replace(hour=ON_PEAK_START.hour, minute=ON_PEAK_START.minute,
+                             second=0, microsecond=0)
+    if dt.time() < ON_PEAK_START:
+        return (start_today - dt).total_seconds()
+    # Past the close: the next opening is tomorrow.
+    return (start_today - dt).total_seconds() + 24 * 3600
+
+
+def rate_delta() -> float:
+    """What the on-peak window costs you, per kWh, over running off-peak."""
+    return ON_PEAK_USD_PER_KWH - OFF_PEAK_USD_PER_KWH
+
+
 # --------------------------------------------------------------------------
 # Core arithmetic
 # --------------------------------------------------------------------------

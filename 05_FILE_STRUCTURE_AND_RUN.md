@@ -37,7 +37,7 @@ hackathon_energy_concierge/
     │
     ├── hub/                        the Copilot+ PC orchestrator
     │   ├── energy_model.py         (200 ln) deterministic arithmetic — the source of every number
-    │   ├── rules.py                (485 ln) R1–R7 waste detection, no LLM
+    │   ├── rules.py                (485 ln) R1–R8 waste detection, no LLM
     │   ├── llm.py                  (313 ln) GenieX narration + deterministic fallback
     │   ├── server.py               (561 ln) MQTT, state fusion, FastAPI, WebSocket, /api/apply
     │   ├── simulator.py            (205 ln) scripted 90-second demo + random mode
@@ -81,7 +81,7 @@ sketch.ino ──serial JSON──▶ uno_q_publisher.py ──MQTT──▶ ser
                                                              │
 phone/index.html ──────────────MQTT/REST──────────────────────┤
                                                              ▼
-                                                     rules.py (7 rules)
+                                                     rules.py (8 rules)
                                                              │
                                                      energy_model.py
                                                        (all numbers)
@@ -157,7 +157,7 @@ python smoke_test.py
 ```
 
 **Expect `38/38 checks passed`** and exit code 0. It covers dependencies, the energy
-model's arithmetic, all 7 rules, the comfort guardrail as both a filter and an actuation
+model's arithmetic, all 8 rules, the comfort guardrail as both a filter and an actuation
 gate, the LLM fallback, the cloud fallback, and a live server through the full
 approve → command → realized-saving loop.
 
@@ -462,7 +462,7 @@ curl -X POST http://localhost:8000/api/presence -H "Content-Type: application/js
 
 ```bash
 python hub/energy_model.py    # prints a hand-checkable table; verify the math yourself
-python hub/rules.py           # fires each of the 7 rules in its own scenario
+python hub/rules.py           # fires each of the 8 rules in its own scenario
 python hub/llm.py             # LLM vs template narration, side by side
 python hub/cloud_report.py    # a report from a synthetic 24-hour digest
 ```

@@ -53,7 +53,7 @@ Modulino Knob ──I2C/Wire1──> STM32 MCU ──Serial(print-only)──> u
                                                                       │ MQTT
 Phone PWA (sliders) ──HTTP POST /api/sensor──────────────> hub/server.py
                                                                       │
-                                          rules R1-R7 + GenieX narration
+                                          rules R1-R8 + GenieX narration
                                                                       │ approve
                                                      home/command/<room>/<load>
                                                                       │
@@ -230,7 +230,7 @@ simulated sensor data into this system. No other context required.
 ## What the system is
 
 A home energy assistant. Sensors report room conditions → a deterministic rules
-engine (R1-R7) detects wasted energy → an on-device LLM narrates the finding in
+engine (R1-R8) detects wasted energy → an on-device LLM narrates the finding in
 plain language → the user approves → a real device is physically switched off.
 
 The simulation UI's job: **stand in for the physical sensors** so the rules can be

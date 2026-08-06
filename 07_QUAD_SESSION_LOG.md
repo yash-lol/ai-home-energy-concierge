@@ -1231,3 +1231,102 @@ Ran in an isolated venv (this machine had no fastapi/paho):
   parallel). It does not yet render declined decisions or the thumbs.
 - The corpus is thin. Leave the hub recording to build one.
 - Everything from §18.6 remains open.
+
+---
+
+# §20 R8 — anticipation: the first rule that can still change the outcome (2026-08-06)
+
+Same branch. `smoke_test.py` now **44/44** (was 38/38); docs and deck swept again.
+
+## 20.1 Why this one matters
+
+R1–R6 are all post-mortems: they report money already spent. Advice that arrives
+after the money is gone is a receipt, not a recommendation. **R8
+`peak_window_imminent`** is the mirror of R6 moved earlier — R6 says the dryer is
+running inside the expensive window, R8 says it is *about to be*, in the 30 minutes
+before the boundary, while you can still stop it.
+
+That is the category change: **detected** waste becomes **avoided** waste.
+
+Nothing is predicted. The tariff calendar is published and fixed, so the claim is
+"the rate changes at 16:00 and this load is running" — no model, no guess, same
+arithmetic standard as everything else. `energy_model.seconds_to_peak()` is the whole
+mechanism.
+
+## 20.2 Keeping a projection from looking like a bill
+
+R8's figure *is* a projection — the dryer's remaining cycle time is unknowable, so it
+bounds the claim at one hour of continued operation and says so in the formula:
+
+```
+3000 W x 3600 s projected = 3.0000 kWh; rate delta $0.58 - $0.32 = $0.26/kWh;
+3.0000 kWh x $0.26 = $0.780 AVOIDABLE if shifted (projected, not yet incurred)
+```
+
+Everything downstream had to learn the distinction:
+
+- `Finding.kind` / `Recommendation.kind` = `detected` | `anticipated`, carried through
+  both narration paths.
+- The **LLM prompt changes for anticipated findings** — it is told the waste has not
+  happened yet and to write in the future tense. Left alone it would have written
+  about money already spent, which is the exact opposite of the point.
+- `realized_totals()` splits out `avoided_usd` / `avoided_count`. Money never spent
+  and money recovered are both savings, but only one of them was measured.
+- The dashboard card is green, badged **↑ BEFORE IT COSTS YOU**, says "avoidable"
+  rather than "cost", and carries the line "projected, not yet incurred — this money
+  is still yours".
+
+## 20.3 Anticipated cards expire
+
+Caught while live-testing: at 17:30 the 15:48 card was still on screen saying "you can
+still shift it". True at 15:48, false at 17:30 — and worse than ordinary staleness,
+because it advertises an action that no longer exists.
+
+`latest_recos()` now drops an anticipated card once its rule stops firing, unless it
+was acted on. Verified:
+
+| virtual clock | cards |
+|---|---|
+| 15:48 | `peak_window_imminent:anticipated` |
+| 17:30 | `peak_hour_heavy_load:detected` — R8 card gone, R6 took over |
+| 15:50 | `peak_window_imminent:anticipated` returns |
+
+Detected cards are deliberately left alone; their staleness is the broader open item
+already logged in §18.6 and this was not the change to settle it in.
+
+## 20.4 `POST /api/clock` — new
+
+R8 only speaks in the 30 minutes before 16:00. The virtual-clock offset already
+existed but was reachable **only** by publishing `home/context/clock` over MQTT — so
+the one rule that most needs driving was the one rule the browser simulator could not
+drive, and demoing it meant waiting for the real wall clock.
+
+```bash
+curl -X POST localhost:8000/api/clock -d '{"time":"15:48"}'   # or offset_s / reset
+```
+
+Same reasoning as `/api/sensor` and `/api/load`: the no-broker path has to be able to
+exercise the whole engine.
+
+## 20.5 Demo beat
+
+1. `{"time":"15:48"}`, dryer preset on → green card, **$0.78 avoidable**, future tense.
+2. Approve → booked as **avoided in advance**, not merely realized.
+3. `{"time":"17:30"}` → the card is gone and R6 has taken over, charging the same
+   dryer for money now actually spent.
+
+The line: *"Every other card tells you what you spent. This one is the only one that
+can still change the answer — and once the moment passes, it takes itself down."*
+
+## 20.6 Verified / still open
+
+44/44 smoke, every module self-test, and the full R8 lifecycle against a live hub.
+
+Still open, unchanged from §19.5: **no dashboard change has ever been rendered in a
+browser** — the anticipated card styling, declined cards, thumbs and dataset tile are
+all verified only at the data layer. `code/simulator/index.html` remains untouched.
+
+**The benchmark table is now stale**: the rules-engine row was measured with seven
+rules. `benchmark.py`'s own label says eight; re-run `python hub/benchmark.py
+--markdown` on the demo machine and paste. The README says this explicitly rather than
+relabelling a number nobody re-measured.

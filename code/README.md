@@ -131,6 +131,11 @@ Measured on a Windows-on-Arm dev machine with `LLM_ENABLED=0` (deterministic pat
 | **Broker messages avoided by edge filtering** | **88.7** | - | **%** | 68 published of 600 sampled (10 min @ 1 Hz) |
 | Peak RSS | 34.0 | - | MB | hub reasoning stack loaded |
 
+> **The rules-engine row predates R8.** It was measured with seven rules; there are now
+> eight. Re-run `python hub/benchmark.py --markdown` on the demo machine and paste the
+> new table rather than relabelling this one — the figure above is what was actually
+> measured, and it should stay that way until it is measured again.
+
 **The reasoning tier costs microseconds.** All the latency that matters is LLM
 inference, which is why it is the only part we accelerate on the NPU - and why the
 deterministic fallback is instant when the model is unavailable.
@@ -174,9 +179,39 @@ benchmark.
 | R5 `phantom_standby` | standby draw during an absence > 2 h |
 | R6 `peak_hour_heavy_load` | deferrable heavy load inside the 4–9 PM peak window; charges only the rate delta |
 | R7 `comfort_guardrail` | **suppresses** advice - and **refuses actuation** - above 27 °C / below 16 °C |
+| R8 `peak_window_imminent` | deferrable heavy load running in the 30 min **before** the peak window opens |
 
 R7 is why this is an assistant rather than a thermostat: it removes recommendations that
 would make the home uncomfortable, and it blocks the actuator from carrying them out.
+
+**R8 is the only rule that can still change the outcome.** Every other rule is a
+post-mortem — it reports money already spent. R8 is the mirror of R6, moved earlier: R6
+tells you the dryer is running inside the expensive window, R8 tells you it is *about
+to be*, while you can still stop it. That is the difference between **detected** waste
+and **avoided** waste, and findings carry a `kind` of `detected` or `anticipated` so a
+projected figure is never displayed as an incurred one.
+
+Nothing about R8 is predicted. The tariff calendar is published and fixed, so the claim
+is "the rate changes at 16:00 and this load is running", not a guess — which keeps it
+inside the same arithmetic standard as everything else. Its figure *is* a projection
+(one hour of continued operation, since the remaining cycle time is unknowable), and the
+formula says so:
+
+```
+3000 W x 3600 s projected = 3.0000 kWh; rate delta $0.58 - $0.32 = $0.26/kWh;
+3.0000 kWh x $0.26 = $0.780 AVOIDABLE if shifted (projected, not yet incurred)
+```
+
+An anticipated card also **expires when its moment passes**: once the window opens it
+disappears and R6 takes over, because *"you can still shift it"* is useful at 15:48 and
+false at 17:30.
+
+To demo it without waiting for 3:30 PM, move the virtual clock — no broker needed:
+
+```bash
+curl -X POST http://localhost:8000/api/clock -H "Content-Type: application/json" \
+  -d '{"time":"15:48"}'          # or {"offset_s": 3600} / {"reset": true}
+```
 
 ### The decisions it declined
 
@@ -640,7 +675,7 @@ overstates what happened.
 code/
   hub/
     energy_model.py    deterministic arithmetic — the source of every number
-    rules.py           R1-R7 waste detection, no LLM
+    rules.py           R1-R8 waste detection, no LLM
     llm.py             GenieX narration + deterministic fallback
     server.py          MQTT, state fusion, FastAPI, WebSocket, /api/apply + safety gate
     simulator.py       scripted and random sensor feeds

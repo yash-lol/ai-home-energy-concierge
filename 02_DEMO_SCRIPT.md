@@ -149,7 +149,7 @@ Raise the room temperature (sensor injection or the real sensor), then tap Appro
 > "Technical implementation is judged on latency, resource use and energy efficiency, so
 > we measured instead of claiming.
 >
-> The whole reasoning tier — seven rules, the energy model, narration — runs in **35
+> The whole reasoning tier — eight rules, the energy model, narration — runs in **35
 > microseconds**. The edge tier is effectively free. All the latency that matters is LLM
 > inference, which is exactly why it's the only part we put on the NPU.
 >

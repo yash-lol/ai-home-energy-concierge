@@ -33,6 +33,14 @@ HVAC_STALL_HUMIDITY_PCT = 60      # high humidity + no temp drop suggests outsid
 COMFORT_MAX_C = 27.0              # never recommend cutting cooling above this
 COMFORT_MIN_C = 16.0              # never recommend cutting heating below this
 
+# R8 — how far ahead of the on-peak boundary to speak up. Long enough to be
+# useful (you can still stop the cycle), short enough not to nag all afternoon.
+PEAK_WARNING_LEAD_S = 1800        # 30 minutes
+# How much continued operation R8 is willing to project. The load's actual
+# remaining runtime is unknowable, so the claim is bounded and the formula says
+# so out loud rather than implying we know when the dryer will finish.
+PEAK_PROJECTION_S = 3600          # 1 hour
+
 # Upper bound on the duration any single finding may charge for.
 #
 # Protects against clock discontinuities (the demo simulator jumps the virtual
@@ -78,6 +86,14 @@ class Finding:
     evidence: List[str] = field(default_factory=list)
     suggested_actions: List[str] = field(default_factory=list)
     estimate: Optional[WasteEstimate] = None
+
+    # "detected"    waste that has already happened and been charged for
+    # "anticipated" waste that has NOT happened yet and can still be avoided
+    #
+    # The distinction is not cosmetic. A detected finding bills elapsed seconds we
+    # observed; an anticipated one bills a projection, which is a weaker claim and
+    # has to be labelled as one wherever the number is shown.
+    kind: str = "detected"
 
     # Set when a guardrail vetoed this finding. The finding is still computed and
     # still costed — it is simply not offered. Keeping it (rather than dropping
@@ -364,6 +380,84 @@ def r6_peak_hour_heavy_load(snapshot: Dict, now_dt: datetime) -> List[Finding]:
 
 
 # --------------------------------------------------------------------------
+# R8 — heavy deferrable load about to be caught by the peak window
+# --------------------------------------------------------------------------
+#
+# Every other rule in this file is a post-mortem: it reports money already spent.
+# This one is the only rule that can still change the outcome, and it is the
+# difference between *detected* waste and *avoided* waste.
+#
+# It is the mirror of R6. R6 tells you the dryer is running inside the expensive
+# window; R8 tells you it is about to be, while you can still stop it. Same
+# arithmetic, moved earlier — which is the whole point, because advice that
+# arrives after the money is gone is a receipt, not a recommendation.
+#
+# Nothing here is predicted. The tariff calendar is published and fixed, so the
+# claim is "the rate changes at 16:00 and this load is running", not a guess
+# about the future. That keeps it inside the project's arithmetic standard.
+
+def r8_peak_window_imminent(snapshot: Dict, now_dt: datetime) -> List[Finding]:
+    from energy_model import (OFF_PEAK_USD_PER_KWH, ON_PEAK_START, ON_PEAK_USD_PER_KWH,
+                              rate_delta, seconds_to_peak)
+
+    findings: List[Finding] = []
+    lead_s = seconds_to_peak(now_dt)
+    # 0.0 means the window is already open — that is R6's job, not this one.
+    if lead_s <= 0 or lead_s > PEAK_WARNING_LEAD_S:
+        return findings
+
+    delta = rate_delta()
+    for room in snapshot.get("rooms", {}):
+        for name, load in _loads_in_room(snapshot, room).items():
+            if load.get("state") != "on":
+                continue
+            if _model_key(name) not in DEFERRABLE_LOADS:
+                continue
+            if load.get("watts", 0) < PEAK_DEFERRABLE_MIN_WATTS:
+                continue
+
+            # Bill the PROJECTION at the rate delta, not the whole energy cost:
+            # running the dryer is legitimate, only its timing is avoidable.
+            f = _attach(Finding(
+                id=f"r8-{room}-{name}",
+                rule_name="peak_window_imminent",
+                severity="warning",
+                room=room,
+                load_key=f"{room}/{name}",
+                seconds_wasted=PEAK_PROJECTION_S,
+                kind="anticipated",
+                headline=f"{name.title()} will hit the peak rate in "
+                         f"{lead_s/60:.0f} min — you can still shift it",
+                evidence=[
+                    f"On-peak opens at {ON_PEAK_START.strftime('%H:%M')}, "
+                    f"in {lead_s/60:.0f} minutes",
+                    f"{name.title()} is running now at {load.get('watts', 0):.0f} W"
+                    + (" (measured)" if load.get("metered") else " (modelled)"),
+                    f"Rate goes ${OFF_PEAK_USD_PER_KWH:.2f} -> "
+                    f"${ON_PEAK_USD_PER_KWH:.2f}/kWh, a ${delta:.2f} difference",
+                    f"PROJECTION: assumes {PEAK_PROJECTION_S/3600:.0f} h of continued "
+                    f"operation. Nothing has been wasted yet — this is avoidable, "
+                    f"not spent.",
+                ],
+                suggested_actions=["Delay the cycle until 9 PM",
+                                   "Use the delay-start timer",
+                                   "Or start it now and finish before 4 PM"],
+            ), now_dt)
+
+            avoidable = f.estimate.kwh * delta
+            f.estimate.usd = avoidable
+            f.estimate.formula = (
+                f"{f.estimate.watts:.0f} W x {PEAK_PROJECTION_S:.0f} s projected "
+                f"= {f.estimate.kwh:.4f} kWh; rate delta ${ON_PEAK_USD_PER_KWH:.2f} - "
+                f"${OFF_PEAK_USD_PER_KWH:.2f} = ${delta:.2f}/kWh; "
+                f"{f.estimate.kwh:.4f} kWh x ${delta:.2f} = ${avoidable:.3f} AVOIDABLE "
+                f"if shifted (projected, not yet incurred)"
+            )
+            findings.append(f)
+    return findings
+
+
+# --------------------------------------------------------------------------
 # R7 — comfort guardrail (a FILTER, not a detector)
 # --------------------------------------------------------------------------
 
@@ -408,6 +502,7 @@ DETECTORS = [
     r4_hvac_with_window_open,
     r5_phantom_standby,
     r6_peak_hour_heavy_load,
+    r8_peak_window_imminent,
 ]
 
 
@@ -505,6 +600,18 @@ if __name__ == "__main__":
     s["loads"]["living/dryer"] = {"state": "on", "watts": 3000, "ts": T, "on_since": T - 1800}
     scenarios.append(("R6 peak-hour dryer", s, EVENING))
 
+    # R8 — the same dryer, 12 minutes BEFORE the window opens
+    s = base()
+    s["loads"]["living/dryer"] = {"state": "on", "watts": 3000, "ts": T, "on_since": T - 600}
+    scenarios.append(("R8 dryer 12 min BEFORE peak (anticipated)", s,
+                      datetime(2026, 8, 3, 15, 48)))
+
+    # R8 must stay quiet outside its lead window — 2 h early is not actionable
+    s = base()
+    s["loads"]["living/dryer"] = {"state": "on", "watts": 3000, "ts": T, "on_since": T - 600}
+    scenarios.append(("R8 quiet at 14:00 (too early to nag)", s,
+                      datetime(2026, 8, 3, 14, 0)))
+
     # R7 — suppression: R2 would fire, but it is 29 C
     s = base()
     s["rooms"]["living"].update(temp_c=29.5)
@@ -525,7 +632,8 @@ if __name__ == "__main__":
         if not fs and not vetoed:
             print("    (no findings)")
         for f in fs:
-            print(f"    [{f.severity:8s}] {f.rule_name}")
+            tag = "ANTICIPATED" if f.kind == "anticipated" else f.severity
+            print(f"    [{tag:11s}] {f.rule_name}")
             print(f"      {f.headline}")
             print(f"      ${f.usd:.3f}  |  {f.estimate.kwh:.4f} kWh  |  {f.estimate.co2_kg:.4f} kg CO2")
             for e in f.evidence:

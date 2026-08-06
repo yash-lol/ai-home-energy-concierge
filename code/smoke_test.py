@@ -103,6 +103,34 @@ def main() -> int:
                   f"${v.usd:.3f} withheld")
         check("evaluate() still returns only actionable advice",
               all(not f.suppressed for f in offered) and len(offered) == len(hot_fs))
+
+        # R8 — anticipation. Fires BEFORE the peak boundary, silent outside the
+        # lead window, and must label its figure as projected rather than spent.
+        dt_mod = __import__("datetime")
+        ahead = json.loads(json.dumps(snap))
+        ahead["loads"] = {"living/dryer": {"state": "on", "watts": 3000, "ts": T,
+                                           "on_since": T - 600}}
+        soon = rules.evaluate(ahead, dt_mod.datetime(2026, 8, 3, 15, 48))
+        r8 = [f for f in soon if f.rule_name == "peak_window_imminent"]
+        check("R8 warns before the peak window opens", len(r8) == 1,
+              f"${r8[0].usd:.3f} avoidable" if r8 else "did not fire")
+        if r8:
+            check("R8 is labelled anticipated, not detected",
+                  r8[0].kind == "anticipated" and "AVOIDABLE" in r8[0].estimate.formula)
+            check("R8 charges only the rate delta",
+                  abs(r8[0].usd - 3.0 * 0.26) < 0.01, f"${r8[0].usd:.3f} vs $0.78")
+        early = rules.evaluate(ahead, dt_mod.datetime(2026, 8, 3, 14, 0))
+        check("R8 stays quiet outside its lead window",
+              not any(f.rule_name == "peak_window_imminent" for f in early), "14:00")
+        inside = rules.evaluate(ahead, dt_mod.datetime(2026, 8, 3, 18, 30))
+        check("R6 takes over once the window is open",
+              any(f.rule_name == "peak_hour_heavy_load" for f in inside)
+              and not any(f.rule_name == "peak_window_imminent" for f in inside))
+        if r8:
+            # Local import: `llm` is not bound until the next block.
+            import llm as _llm
+            rec8 = _llm.template_narrate(r8[0])
+            check("anticipated kind survives narration", rec8.kind == "anticipated")
     except Exception as exc:
         check("rules", False, str(exc))
 
