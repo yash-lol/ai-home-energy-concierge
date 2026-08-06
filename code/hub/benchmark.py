@@ -272,7 +272,7 @@ def bench_plan_synthesis(iterations: int) -> Dict[str, Result]:
     det = Result("plan synthesis — deterministic fallback", "ms",
                  note="tier 2 fallback — pure Python ranking")
     npu = Result("plan synthesis — NPU, one call per change", "s",
-                 note="tier 2 — GenieX Qwen3-4B W4A16 on Hexagon")
+                 note="tier 2 — GenieX on Hexagon")
     try:
         import planner
         import llm as llm_mod
@@ -290,19 +290,28 @@ def bench_plan_synthesis(iterations: int) -> Dict[str, Result]:
         npu.note = "SKIPPED — LLM_ENABLED=0"
         return {"template": det, "llm": npu}
 
+    # Measure the CONFIGURED planner, not a default one. `planner.Planner()`
+    # with no arguments silently ignores PLAN_MODEL and re-measures the
+    # narration model, so an A/B across model sizes would have reported the
+    # same figure twice and looked like the small model changed nothing.
+    bench_planner = planner.PLANNER
+    model_label = bench_planner.model or "(default)"
+    npu.note = f"tier 2 — GenieX on Hexagon, model={model_label}"
+
     # Deliberately few iterations: each is a real NPU generation, and a wrong
     # number here would misrepresent the headline latency claim.
     n = max(3, min(iterations // 4, 6))
     samples, fell_back = [], 0
     for _ in range(n):
         t0 = time.perf_counter()
-        p = planner.Planner().plan(findings, use_cache=False)
+        p = bench_planner.plan(findings, use_cache=False)
         samples.append(time.perf_counter() - t0)
         if p.planned_by != "llm":
             fell_back += 1
     if fell_back == n:
         npu.ok = False
-        npu.note = f"SKIPPED — every call fell back to template (endpoint down?)"
+        npu.note = (f"SKIPPED — every call fell back to template "
+                    f"(endpoint down? model={model_label})")
         return {"template": det, "llm": npu}
     npu.samples = samples
     if fell_back:

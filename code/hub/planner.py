@@ -52,6 +52,30 @@ MAX_PLAN_ITEMS = int(os.environ.get("PLAN_MAX_ITEMS", "4"))
 PLAN_MAX_TOKENS = int(os.environ.get("PLAN_MAX_TOKENS", "320"))
 PLAN_TIMEOUT_S = int(os.environ.get("PLAN_TIMEOUT_S", "30"))
 
+# The planner may run a DIFFERENT, smaller model than narration.
+#
+# WHY THIS KNOB EXISTS
+#     Plan synthesis is measured at ~11.5 s and is by far the slowest thing in
+#     the system — the rules engine is 30 µs. Latency here tracks OUTPUT LENGTH,
+#     and the plan is the longest output we ask for (ranked items, reasons,
+#     deferrals), so it pays the steepest price for model size.
+#
+#     Ranking three findings and writing one short sentence each is a much
+#     easier job than narration: the numbers are given, the schema is fixed, and
+#     anything malformed is caught. GenieX publishes Qwen3.5-0.8B and 2B
+#     alongside the 4B, so the planner can be right-sized independently.
+#
+# WHY IT IS SAFE TO TRY
+#     A weaker model fails in exactly the two ways this file already handles:
+#     unusable JSON (-> _validate drops it, then deterministic_plan) and a bad
+#     number (-> the P1-C provenance verifier flags it). It cannot produce a
+#     wrong dollar figure on screen, because it never owns one.
+#
+# Defaults to the narration model, so behaviour is unchanged until set.
+#     PLAN_MODEL=ai-hub-models/Qwen3.5-0.8B  python hub/server.py
+PLAN_MODEL = os.environ.get("PLAN_MODEL", "") or None
+PLAN_BASE_URL = os.environ.get("PLAN_BASE_URL", "") or None
+
 
 SYSTEM_PROMPT = """You are the reasoning layer of a home energy system.
 
@@ -89,6 +113,14 @@ class Plan:
     latency_s: float = 0.0
     dropped_ids: List[str] = field(default_factory=list)
     provenance: str = "unchecked"                       # set by P1-C verifier
+    # WHICH model produced this. Empty on the deterministic path. Without it a
+    # before/after latency comparison is unfalsifiable: a plan that silently
+    # fell back to the template is indistinguishable from a fast small model,
+    # and "we made the planner 5x faster" would be reporting a broken endpoint
+    # as a win. This project has already been bitten once by exactly that —
+    # narration fell back to templates every call while the README quoted an
+    # NPU figure.
+    model: str = ""
 
     def to_dict(self) -> Dict:
         return {
@@ -98,6 +130,7 @@ class Plan:
             "anomaly_note": self.anomaly_note,
             "planned_by": self.planned_by,
             "latency_s": round(self.latency_s, 3),
+            "model": self.model,
             "dropped_ids": self.dropped_ids,
             "provenance": self.provenance,
         }
@@ -311,6 +344,7 @@ class Planner:
                 planned_by="llm",
                 latency_s=time.time() - t0,
                 dropped_ids=dropped,
+                model=self.model,
             )
             if dropped:
                 print(f"[planner] dropped unknown finding ids: {dropped}")
@@ -341,7 +375,7 @@ class Planner:
             return fb
 
 
-PLANNER = Planner()
+PLANNER = Planner(base_url=PLAN_BASE_URL, model=PLAN_MODEL)
 
 
 # --------------------------------------------------------------------------
