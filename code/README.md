@@ -317,6 +317,56 @@ Recording is on by default and writes to `code/data/sessions/`, which is **gitig
 the project claims occupancy data never leaves the house, and that has to be true of the
 repo too. `RECORD_ENABLED=0` turns it off.
 
+### Synthetic corpus, and what training on it actually showed
+
+Labels are the scarce resource: ticks accrue for free, but an approval only exists when
+a human clicks, so an unattended overnight run yields thousands of rows and no training
+signal. `tools/generate_sessions.py` simulates a household instead.
+
+```bash
+python tools/generate_sessions.py --days 90     # -> session-synthetic-*.jsonl
+python tools/build_dataset.py                   # -> data/reco_dataset.csv
+python tools/train_relevance.py                 # -> hub/models/relevance_lr.json
+```
+
+**It invents inputs, never outputs.** Occupancy, presence, appliance use, the daylight
+curve and the temperature cycle are fabricated; every situation is then fed through the
+real `rules.evaluate_all()` and the real `template_narrate()`, so a row's rule, cost,
+formula and evidence are exactly what the live system would have produced. Sensor values
+are stamped `*_src="synthetic"`, files are named `session-synthetic-*`, and
+`build_dataset.py` reports the share automatically.
+
+The simulated occupant has **preferences the rules do not encode** — acts on HVAC,
+largely ignores lighting while at home, never acts between 23:00 and 07:00, ignores
+phantom standby, responds to size, and is noisy about one time in eight. If the labels
+came from the rules, a model trained on them would simply re-derive R1–R8 and know
+nothing.
+
+The model does recover them. From 90 simulated days (446 rows, 138 positives):
+
+```
+presence_away  +1.03    occupancy     -1.03    usd            +1.23
+phantom_standby -0.54   hvac_window   +0.38    peak_imminent  +0.53
+```
+
+**But the honest result is a draw on ranking.** Measured against two baselines on a
+chronological held-out split:
+
+| | acc | precision | recall | F1 | AUC |
+|---|---|---|---|---|---|
+| majority | 0.679 | 0.000 | 0.000 | 0.000 | 0.500 |
+| **by-cost** (rank by the figure the rules already compute) | 0.709 | 1.000 | 0.093 | 0.170 | **0.946** |
+| learned model | **0.813** | 0.636 | 0.977 | **0.771** | 0.945 |
+
+The dollar figure is already an excellent *ordering* — the model does not improve on it.
+What it adds is a usable *operating point*: cost alone cannot be thresholded without
+losing 91% of the positives. That is the whole claim, and `train_relevance.py` prints
+the comparison every run whether it flatters the model or not. A model that cannot beat
+the arithmetic already in the repo should not be described as an improvement to it.
+
+Both artifacts (`occupancy_lr.json`, `relevance_lr.json`) record what they were trained
+on, the sample count, and their caveats.
+
 ## Hardware
 
 Breadboard-free. Everything connects over Qwiic or Wi-Fi.
@@ -685,8 +735,10 @@ code/
     occupancy_model.py learned occupancy inference (shadow by default)
     models/            trained artifacts, weights in plain JSON
   tools/
-    train_occupancy.py fetch UCI 357, train, export models/occupancy_lr.json
-    build_dataset.py   sessions -> labelled CSV, with an honest verdict
+    train_occupancy.py   fetch UCI 357, train, export models/occupancy_lr.json
+    generate_sessions.py simulate a household -> synthetic corpus (declared)
+    build_dataset.py     sessions -> labelled CSV, with an honest verdict
+    train_relevance.py   train + compare against baselines, print the verdict
     reconfigure_network.py  re-point the demo at the current LAN
   dashboard/index.html hub dashboard with Apply buttons (no build step)
   phone/index.html     phone PWA with Approve buttons (no build step)

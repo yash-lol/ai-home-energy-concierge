@@ -52,6 +52,12 @@ DEFAULT_OUT = ROOT / "data" / "reco_dataset.csv"
 # How long after a card appears an approval still counts as a response to it.
 APPROVAL_WINDOW_S = 900
 
+# Two sightings of the same finding id closer together than this are the same
+# episode — RECO_COOLDOWN_S re-narration, not a second decision. Further apart,
+# the condition went away and came back, which is a new decision about a new
+# occurrence and deserves its own row.
+EPISODE_GAP_S = 1800
+
 # Minimum positives before a trained number means anything. Not a statistical
 # threshold so much as a blush threshold: below this, quoting an accuracy in
 # front of judges is not defensible.
@@ -157,23 +163,44 @@ def featurise(tick: Dict, finding: Dict) -> Dict:
 
 
 def build(rows: List[Dict]) -> List[Dict]:
-    """Join findings to the tick that preceded them and to their outcome."""
-    # Outcomes, keyed by reco_id. Explicit feedback beats an inferred label.
-    applied: Dict[str, Dict] = {}
-    refused: Dict[str, Dict] = {}
-    thumbs: Dict[str, Dict] = {}
+    """Join each finding OCCURRENCE to its situation and its outcome.
+
+    A finding id is stable: `r2-living-ac` is the same string every time the A/C
+    is left on, on any day. So an id is not a decision — an *occurrence* is. An
+    earlier version deduplicated by id and collapsed a fortnight of behaviour
+    into about seven rows.
+
+    Occurrences are therefore separated in time (`EPISODE_GAP_S`), and each one
+    claims the first matching outcome inside its window, which is then consumed
+    so a later occurrence cannot claim it again.
+    """
+    # Outcomes per id, in time order, each consumable exactly once.
+    outcomes: Dict[str, List[Dict]] = {}
     for r in rows:
-        t = r.get("type")
-        if t == "apply":
-            applied.setdefault(r.get("reco_id"), r)
-        elif t == "refusal":
-            refused.setdefault(r.get("reco_id"), r)
-        elif t == "feedback":
-            thumbs[r.get("reco_id")] = r          # last thumb wins
+        if r.get("type") in ("apply", "refusal", "feedback"):
+            outcomes.setdefault(r.get("reco_id"), []).append(r)
+    for lst in outcomes.values():
+        lst.sort(key=lambda x: x.get("ts", 0))
+    claimed: set = set()
+
+    def take(rid: str, at: float) -> Optional[Dict]:
+        """First unclaimed outcome for `rid` within the window after `at`."""
+        best = None
+        for i, o in enumerate(outcomes.get(rid, [])):
+            if (rid, i) in claimed:
+                continue
+            dt = o.get("ts", 0) - at
+            if -60 <= dt <= APPROVAL_WINDOW_S:
+                best = (rid, i, o)
+                break
+        if best is None:
+            return None
+        claimed.add((best[0], best[1]))
+        return best[2]
 
     out: List[Dict] = []
     last_tick: Optional[Dict] = None
-    seen_findings = set()
+    last_seen: Dict[tuple, float] = {}
 
     for r in rows:
         if r.get("type") == "tick":
@@ -183,25 +210,24 @@ def build(rows: List[Dict]) -> List[Dict]:
             continue
 
         rid = r.get("reco_id")
-        # A finding re-narrated after the cooldown is the SAME decision, not a
-        # second one. Counting it twice would inflate the dataset with copies.
+        ts = r.get("ts", 0)
         key = (r.get("_file"), rid)
-        if key in seen_findings:
+        # Re-narration inside the same episode is one decision, not several.
+        if key in last_seen and (ts - last_seen[key]) < EPISODE_GAP_S:
+            last_seen[key] = ts
             continue
-        seen_findings.add(key)
+        last_seen[key] = ts
 
         if last_tick is None:
             continue                        # no situation to attribute it to
 
-        fb = thumbs.get(rid)
-        ap = applied.get(rid)
-        rf = refused.get(rid)
-
-        if fb is not None:
-            label, source, weight = (1 if fb.get("useful") else 0), "feedback", 1.0
-        elif ap is not None and abs(ap.get("ts", 0) - r.get("ts", 0)) <= APPROVAL_WINDOW_S:
+        o = take(rid, ts)
+        kind = o.get("type") if o else None
+        if kind == "feedback":
+            label, source, weight = (1 if o.get("useful") else 0), "feedback", 1.0
+        elif kind == "apply":
             label, source, weight = 1, "apply", 1.0
-        elif rf is not None:
+        elif kind == "refusal":
             label, source, weight = 0, "refusal", 1.0
         else:
             label, source, weight = 0, "ignored", WEAK_NEGATIVE_WEIGHT

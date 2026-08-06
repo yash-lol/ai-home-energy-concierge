@@ -39,5 +39,9 @@ code/arduino/pc.env
 # true of the repo too. Force-add a curated sample with `git add -f` if you want
 # one committed as evidence.
 code/data/sessions/
+# The built dataset. Synthetic today, but a real session would put household
+# behaviour in here, and "git add -A" must never be the thing that leaks it.
+# Regenerate in seconds: generate_sessions.py --seed N && build_dataset.py
+code/data/reco_dataset.csv
 # Downloaded third-party corpora — re-fetch with tools/train_occupancy.py
 code/data/uci/

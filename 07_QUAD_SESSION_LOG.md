@@ -1330,3 +1330,82 @@ all verified only at the data layer. `code/simulator/index.html` remains untouch
 rules. `benchmark.py`'s own label says eight; re-run `python hub/benchmark.py
 --markdown` on the demo machine and paste. The README says this explicitly rather than
 relabelling a number nobody re-measured.
+
+---
+
+# §21 Synthetic corpus + the relevance model, and an honest draw (2026-08-06)
+
+Same branch. The dataset was empty — labels only exist when a human clicks, so an
+unattended run gives thousands of ticks and no training signal.
+`tools/generate_sessions.py` simulates a household instead.
+
+## 21.1 It invents inputs, never outputs
+
+Occupancy, presence, appliance use, daylight and temperature are fabricated. Every
+situation is then fed through the **real** `rules.evaluate_all()` and the real
+`template_narrate()`, so each row's rule, cost, formula and evidence are exactly what
+the live system would have produced from that state. Sensor values carry
+`*_src="synthetic"`, files are named `session-synthetic-*`, and `build_dataset.py`
+reports the share automatically (`data provenance: contains_synthetic=446`).
+
+## 21.2 The occupant has preferences the rules cannot see
+
+If labels came from the rules, a model trained on them would re-derive R1-R8 and know
+nothing. So the simulated occupant acts on HVAC, largely ignores lighting while home,
+never acts 23:00-07:00, ignores phantom standby, responds to size, and is noisy about
+one decision in eight.
+
+The model recovered all of it from 90 simulated days (446 rows, 138 positives):
+
+```
+presence_away   +1.03    occupancy      -1.03    usd             +1.23
+phantom_standby -0.54    hvac_window    +0.38    peak_imminent   +0.53
+```
+
+## 21.3 Two bugs that only appeared at volume
+
+1. **Finding ids are STABLE.** `r2-living-ac` is the same string every time the A/C is
+   left on, on any day — so an id is not a decision, an *occurrence* is. Both the
+   generator and `build_dataset.py` deduplicated by id and collapsed a fortnight into
+   **3 findings**. Occurrences are now separated by `EPISODE_GAP_S`, and outcomes are
+   claimed by the nearest occurrence and then consumed. 14 days went from 3 findings
+   to 66.
+2. **The generator's household never left a light on.** Lighting was computed as
+   `dark and occupied`, so lights were never on in daylight or in an empty room and
+   **R1 and R3 could not fire once in a fortnight** — the two rules about lights, which
+   is what the demo bulb is. Lighting is now a state machine with a
+   forgets-on-departure probability.
+
+## 21.4 The result, which is a draw
+
+Chronological held-out split, measured against two baselines:
+
+| | acc | prec | recall | F1 | AUC |
+|---|---|---|---|---|---|
+| majority | 0.679 | 0.000 | 0.000 | 0.000 | 0.500 |
+| **by-cost** | 0.709 | 1.000 | 0.093 | 0.170 | **0.946** |
+| learned model | **0.813** | 0.636 | 0.977 | **0.771** | 0.945 |
+
+**The dollar figure the rules already compute is an excellent ranker and the model does
+not beat it.** What it adds is a usable operating point — cost alone cannot be
+thresholded without losing 91% of the positives.
+
+`train_relevance.py` prints that comparison every run, flattering or not, and refuses
+to train below 30 positives. An earlier version of the verdict only checked AUC and
+reported "adds nothing", which was as wrong in the other direction; it now reports
+ranking and deciding separately.
+
+**Say the draw out loud.** "We built the learned tier, measured it against the
+arithmetic we already had, and it did not improve the ranking" is a stronger position
+than an unmeasured claim — and it is the same instinct as R7 refusing and the model
+flagging itself out of domain.
+
+## 21.5 State
+
+- `data/sessions/` holds a 90-day synthetic corpus (~30 MB, gitignored).
+- `hub/models/relevance_lr.json` committed alongside `occupancy_lr.json`; both record
+  what they were trained on, the sample count and their caveats.
+- `recorder.py` gained an overridable `clock` so generated rows carry simulated
+  timestamps instead of all landing in one real second.
+- Unchanged from §19.5/§20.6: **no dashboard change has been rendered in a browser**,
+  and `code/simulator/index.html` is still untouched.

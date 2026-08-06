@@ -136,6 +136,10 @@ class SessionRecorder:
         self.failures = 0
         self.lock = threading.Lock()
         self.started_ts = time.time()
+        # Overridable time source. The hub always uses the wall clock; a corpus
+        # generator sets this so a simulated fortnight lands with the timestamps
+        # it is meant to have instead of all arriving in the same real second.
+        self.clock = time.time
 
         if not self.enabled:
             print("[record] disabled (RECORD_ENABLED=0)")
@@ -157,7 +161,7 @@ class SessionRecorder:
             return
         with self.lock:
             self.seq += 1
-            row = {"seq": self.seq, "ts": time.time(), "run_id": self.run_id, **row}
+            row = {"seq": self.seq, "ts": self.clock(), "run_id": self.run_id, **row}
             try:
                 # Open/close per write and flush: a demo machine gets killed with
                 # Ctrl-C or closed lid, and a buffered tail would lose exactly the

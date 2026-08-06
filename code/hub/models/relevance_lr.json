@@ -1,0 +1,183 @@
+{
+  "schema": 1,
+  "task": "P(user acts on this recommendation)",
+  "trained_at": "2026-08-06T09:33:15+00:00",
+  "trained_on": [
+    "contains_synthetic"
+  ],
+  "n_rows": 446,
+  "n_positive": 138,
+  "split": {
+    "kind": "chronological",
+    "train": 312,
+    "held_out": 134
+  },
+  "features": [
+    "hour",
+    "on_peak",
+    "occupancy",
+    "presence_away",
+    "lux",
+    "temp_c",
+    "humidity",
+    "load_watts",
+    "severity_rank",
+    "usd",
+    "minutes_unoccupied",
+    "minutes_away",
+    "hour_sin",
+    "hour_cos",
+    "rule=unoccupied_lights_on",
+    "rule=away_with_hvac_on",
+    "rule=daylight_waste",
+    "rule=hvac_with_window_open",
+    "rule=phantom_standby",
+    "rule=peak_hour_heavy_load",
+    "rule=peak_window_imminent"
+  ],
+  "weights": [
+    -0.113927,
+    0.400255,
+    -1.026565,
+    1.026565,
+    -0.441912,
+    0.228248,
+    0.048515,
+    0.301786,
+    0.204957,
+    1.230455,
+    -0.174274,
+    -0.229696,
+    0.33578,
+    0.017137,
+    -0.091027,
+    0.179077,
+    0.00326,
+    0.378568,
+    -0.536924,
+    0.03907,
+    0.533378
+  ],
+  "bias": -1.122427,
+  "standardiser": [
+    {
+      "mean": 11.458333,
+      "std": 4.238657
+    },
+    {
+      "mean": 0.227564,
+      "std": 0.41926
+    },
+    {
+      "mean": 0.432692,
+      "std": 0.495449
+    },
+    {
+      "mean": 0.567308,
+      "std": 0.495449
+    },
+    {
+      "mean": 581.535256,
+      "std": 298.790369
+    },
+    {
+      "mean": 23.616026,
+      "std": 2.190568
+    },
+    {
+      "mean": 49.141987,
+      "std": 6.575883
+    },
+    {
+      "mean": 577.102564,
+      "std": 535.299978
+    },
+    {
+      "mean": 1.785256,
+      "std": 0.938172
+    },
+    {
+      "mean": 0.161776,
+      "std": 0.347486
+    },
+    {
+      "mean": 51.330128,
+      "std": 100.512676
+    },
+    {
+      "mean": 50.657051,
+      "std": 98.402957
+    },
+    {
+      "mean": 0.202133,
+      "std": 0.752118
+    },
+    {
+      "mean": -0.480239,
+      "std": 0.403523
+    },
+    {
+      "mean": 0.060897,
+      "std": 0.239142
+    },
+    {
+      "mean": 0.355769,
+      "std": 0.478746
+    },
+    {
+      "mean": 0.439103,
+      "std": 0.496278
+    },
+    {
+      "mean": 0.012821,
+      "std": 0.1125
+    },
+    {
+      "mean": 0.105769,
+      "std": 0.307542
+    },
+    {
+      "mean": 0.016026,
+      "std": 0.125574
+    },
+    {
+      "mean": 0.009615,
+      "std": 0.097585
+    }
+  ],
+  "scores": {
+    "model": {
+      "n": 134,
+      "accuracy": 0.8134,
+      "precision": 0.6364,
+      "recall": 0.9767,
+      "f1": 0.7706,
+      "auc": 0.9451
+    },
+    "majority": {
+      "n": 134,
+      "accuracy": 0.6791,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "auc": 0.5
+    },
+    "by_cost": {
+      "n": 134,
+      "accuracy": 0.709,
+      "precision": 1.0,
+      "recall": 0.093,
+      "f1": 0.1702,
+      "auc": 0.9462
+    }
+  },
+  "beats_cost_baseline": true,
+  "beats_cost_ranking": false,
+  "beats_cost_deciding": true,
+  "verdict": "Does NOT beat cost at ranking: the dollar figure the rules already compute is an excellent ordering on this corpus. What the model adds is a usable operating point \u2014 cost alone cannot be thresholded without losing most of the positives. Claim that, and nothing more.",
+  "mandate": "advisory only \u2014 may rank and suppress; may never alter a figure or unlock an action the guardrail refused",
+  "caveats": [
+    "Trained on a SIMULATED household (tools/generate_sessions.py). It has learned that generator's occupant, not a real person.",
+    "Report the sample count wherever the accuracy is reported."
+  ]
+}
