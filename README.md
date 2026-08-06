@@ -19,6 +19,7 @@ Event: Snapdragon Multiverse 2026 · Mon Aug 3 – Fri Aug 7 · submit Fri **1:0
 | **`03_SETUP_CHEATSHEET.md`** | Every command: GenieX, QUAD, broker, UNO Q, actuator, phone | Day 1 and demo morning |
 | **`05_FILE_STRUCTURE_AND_RUN.md`** | **operator's manual** — every file explained, every run path, troubleshooting | When something breaks |
 | **`06_UNO_Q_BRINGUP.md`** | **hands-on-hardware guide** — flash the sketch, bring up sensors, wire and test the actuator, close the loop, gated step by step | The moment the board is on the bench |
+| **`09_ML_TIER_AND_DATASET.md`** | the learned tier, the session dataset, and R8 — what they measure and what they deliberately do not claim | Reviewing the `ml-dataset-and-models` branch |
 | **`presentation.html`** | **the deck** — open in any browser, arrow keys to navigate | Thursday / demo |
 | **`code/`** | Working, tested backbone | Day 1 |
 
