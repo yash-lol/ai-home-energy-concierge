@@ -41,9 +41,11 @@ credential is referenced by variable name and storage location only; see
 > anything else. It makes the publisher serve *invented* sensor data while
 > looking perfectly healthy. Check first:
 > ```bash
-> adb shell "grep -c $'' /home/arduino/ai-home-energy-concierge/code/arduino/board.env"
+> adb shell "grep -c $'
+' /home/arduino/ai-home-energy-concierge/code/arduino/board.env"
 > ```
-> Non-zero = that is your bug. Fix: `sed -i 's/$//' board.env` and restart
+> Non-zero = that is your bug. Fix: `sed -i 's/
+$//' board.env` and restart
 > the publisher.
 
 **Current position (2026-08-05): the full Archetype E loop is CLOSED and
@@ -1129,14 +1131,112 @@ mixed-provenance test. Harmless; clear it by restarting the hub.
 
 ---
 
-# §19 Dataset, learned occupancy, and the declined-decisions panel (2026-08-06)
+# §19 AI enhancement plan (09_AI_ENHANCEMENT_PLAN.md) — all six tasks done
+
+All of P0-A → P3-F implemented, gated and pushed. `smoke_test.py` 32/32 after
+every task.
+
+## 19.1 ⚠ Run the gate with the board publisher STOPPED
+
+`smoke_test.py` asserts `total_watts == 1340` from its own fixtures. The live
+publisher republishes the REAL bulb (1.7 W) every 5 s and overwrites them, giving
+a spurious **23/25**. It is interference, not a regression.
+
+```bash
+adb shell "pkill -9 -f '[u]no_q_publisher.py'"
+python smoke_test.py            # 32/32
+# then relaunch the publisher
+```
+
+## 19.2 The plan's latency budget was wrong, and why
+
+Plan assumed ~3.1 s for GenieX. Measured: **11.4 s**, because latency tracks
+**output length**, steeply:
+
+| output | latency |
+|---|---|
+| 135 chars | 2.6 s |
+| 378 chars | 5.5 s |
+| 1060 chars | 11.4 s |
+| ~600 tokens | **~135 s** |
+
+`llm.py` asked for `max_tokens=300` with no brevity instruction, so the model
+rambled to ~1060 chars and blew its own 8 s timeout — **every narration had been
+silently falling back to the template**, while README quoted 3110 ms. Capping
+output at 160 tokens + a brevity instruction + a 20 s timeout gives **2.3 s and
+`narrated_by=llm`**: 5× faster *and* actually using the NPU. Approved by the user
+before changing shared code.
+
+## 19.3 Measured, on real silicon
+
+| Tier | Where | Measured |
+|---|---|---|
+| 1 · edge anomaly | **UNO Q A53**, pure Python | **30.6 µs** p50 |
+| — provenance check | hub | 110 µs |
+| — rules engine | hub | 0.014 ms |
+| 2 · narration | Hexagon NPU | 3.33 s |
+| 2 · plan synthesis | Hexagon NPU | 11.5 s, **per change** |
+| 3 · Q&A | Hexagon NPU | ~3.4 s, first token 2.4 s |
+
+Anomaly model: 14 simulated days, 840 samples, **holdout 0.9714**, precision
+0.947, recall 0.900, seed 20260806. **Training data is SIMULATED** — stated in
+the model file, in `model_provenance()`, and in every evidence line.
+
+## 19.4 Two bugs the rehearsal caught — read these
+
+**(a) A learned finding switched the WRONG DEVICE and skipped the safety gate.**
+`server.py::_load_from_rule` maps `rule_name` → load and defaulted to `"lights"`.
+A learned finding carries `rule_name="learned_anomaly"`, absent from that table,
+so `learned-living-ac` resolved to `living/lights`. Approving it would have
+published `home/command/living/lights` — and the comfort guardrail, which keys
+off the load name, saw "lights" and allowed it at 29.5 °C. Two failures from one
+silent default. Fixed by carrying the Finding's real `load_key` onto the
+Recommendation; the six mapped rules are byte-identical. **Now HTTP 409.**
+
+**(b) `detector` died at the narration boundary.** It lived on the Finding but
+not the Recommendation, so every dashboard card looked equally rule-derived.
+Now carried through and rendered as a `rule` / `learned · 0.999` badge.
+
+## 19.5 §5 rehearsal result
+
+| Step | Result |
+|---|---|
+| 1 · rule finding ranked by planner | ✅ `planned_by=llm`, provenance verified |
+| 2 · learned finding at 3 AM | ✅ score 0.805, tagged `learned` |
+| 3 · approve → real bulb dark | ✅ 1.7 W → 0.0 W, `source=kasa ok=True`, booked |
+| 4 · R7 refusal | ✅ **HTTP 409** (after fixing 19.4a) |
+| 5 · /ask on the NPU | ✅ 4.1 s, `PROVENANCE=VERIFIED` |
+| 6 · GenieX dead | ✅ all paths degrade to `template`, still functional |
+
+Step 6 used an unreachable `LLM_BASE_URL` rather than killing the user's GenieX
+service — same timeout/exception path, no risk of leaving the demo broken.
+
+## 19.6 The provenance verifier earned its place
+
+It caught the model doing forbidden arithmetic, unprompted, during development:
+
+```
+Q: "What if I shift the dryer to 9 PM?"
+A: "...reducing cost from $0.39 to $0.19, saving $0.20."   -> UNVERIFIED [0.19]
+```
+
+`$0.39` was in the digest; `$0.19` was not. Nobody anticipated that specific
+failure — the check found it. Cost: 110 µs.
+
+## 19.7 Flags
+
+All OFF by default. `AI_ANOMALY=1` `AI_PLAN=1` `AI_ASK=1`. Q&A page at `/ask`.
+
+---
+
+# §20 Dataset, learned occupancy, and the declined-decisions panel (2026-08-06)
 
 Branch **`ml-dataset-and-models`**. Additive: nothing on the existing critical path
 changed behaviour. `smoke_test.py` is now **38/38** (was 32/32 — six new checks; the
 count is quoted in the deck and eight docs, all swept, and `presentation.html` was
 rebuilt from its template).
 
-## 19.1 Nothing was being recorded
+## 20.1 Nothing was being recorded
 
 `power_history` was a 60-entry deque — five minutes — and everything else died with
 the process. No audit trail of decisions, and no substrate to learn from.
@@ -1157,7 +1257,7 @@ outcome, then prints a verdict: below 30 positives it says outright that there i
 enough to train on. Labels: approval = positive, refusal = hard negative, thumb =
 explicit, untouched card = weak negative at weight 0.25 and marked.
 
-## 19.2 Learned occupancy — UCI 357, shadow by default
+## 20.2 Learned occupancy — UCI 357, shadow by default
 
 There is no occupancy sensor; occupancy was a toggle. `hub/occupancy_model.py` infers
 it from temperature, humidity and lux, trained by `tools/train_occupancy.py` on the
@@ -1187,7 +1287,7 @@ Default mode is **shadow** (`OCCUPANCY_MODEL=1`): predicts, displays beside the
 reported value, drives nothing. Mode 2 fills a gap only when no other source supplied
 occupancy — it never overwrites a reported value.
 
-## 19.3 The declined-decisions panel — and the conflict beat for free
+## 20.3 The declined-decisions panel — and the conflict beat for free
 
 `r7_comfort_guardrail()` used to `continue` past a vetoed finding. It now tags and
 returns it; `evaluate_all()` gives `(offered, suppressed)` while `evaluate()` keeps its
@@ -1208,7 +1308,7 @@ Vetoes record as their own row type, **never as a `refusal`**: a refusal is a hu
 asking and being told no, a veto is advice nobody saw. Only *transitions* are logged —
 one veto row across many ticks, verified.
 
-## 19.4 Verified
+## 20.4 Verified
 
 Ran in an isolated venv (this machine had no fastapi/paho):
 
@@ -1222,7 +1322,7 @@ Ran in an isolated venv (this machine had no fastapi/paho):
 | `tools/build_dataset.py` | verdict fires correctly on a thin corpus |
 | Live hub | veto panel, `traded_for`, shadow model, dataset counters all correct |
 
-## 19.5 Still open
+## 20.5 Still open
 
 - **Dashboard rendering is unverified in a browser.** The HTML/CSS/JS changes
   (declined cards, 👍/👎, dataset tile, shadow line) were never loaded in a real
@@ -1234,11 +1334,11 @@ Ran in an isolated venv (this machine had no fastapi/paho):
 
 ---
 
-# §20 R8 — anticipation: the first rule that can still change the outcome (2026-08-06)
+# §21 R8 — anticipation: the first rule that can still change the outcome (2026-08-06)
 
 Same branch. `smoke_test.py` now **44/44** (was 38/38); docs and deck swept again.
 
-## 20.1 Why this one matters
+## 21.1 Why this one matters
 
 R1–R6 are all post-mortems: they report money already spent. Advice that arrives
 after the money is gone is a receipt, not a recommendation. **R8
@@ -1253,7 +1353,7 @@ Nothing is predicted. The tariff calendar is published and fixed, so the claim i
 arithmetic standard as everything else. `energy_model.seconds_to_peak()` is the whole
 mechanism.
 
-## 20.2 Keeping a projection from looking like a bill
+## 21.2 Keeping a projection from looking like a bill
 
 R8's figure *is* a projection — the dryer's remaining cycle time is unknowable, so it
 bounds the claim at one hour of continued operation and says so in the formula:
@@ -1276,7 +1376,7 @@ Everything downstream had to learn the distinction:
   rather than "cost", and carries the line "projected, not yet incurred — this money
   is still yours".
 
-## 20.3 Anticipated cards expire
+## 21.3 Anticipated cards expire
 
 Caught while live-testing: at 17:30 the 15:48 card was still on screen saying "you can
 still shift it". True at 15:48, false at 17:30 — and worse than ordinary staleness,
@@ -1294,7 +1394,7 @@ was acted on. Verified:
 Detected cards are deliberately left alone; their staleness is the broader open item
 already logged in §18.6 and this was not the change to settle it in.
 
-## 20.4 `POST /api/clock` — new
+## 21.4 `POST /api/clock` — new
 
 R8 only speaks in the 30 minutes before 16:00. The virtual-clock offset already
 existed but was reachable **only** by publishing `home/context/clock` over MQTT — so
@@ -1308,7 +1408,7 @@ curl -X POST localhost:8000/api/clock -d '{"time":"15:48"}'   # or offset_s / re
 Same reasoning as `/api/sensor` and `/api/load`: the no-broker path has to be able to
 exercise the whole engine.
 
-## 20.5 Demo beat
+## 21.5 Demo beat
 
 1. `{"time":"15:48"}`, dryer preset on → green card, **$0.78 avoidable**, future tense.
 2. Approve → booked as **avoided in advance**, not merely realized.
@@ -1318,11 +1418,11 @@ exercise the whole engine.
 The line: *"Every other card tells you what you spent. This one is the only one that
 can still change the answer — and once the moment passes, it takes itself down."*
 
-## 20.6 Verified / still open
+## 21.6 Verified / still open
 
 44/44 smoke, every module self-test, and the full R8 lifecycle against a live hub.
 
-Still open, unchanged from §19.5: **no dashboard change has ever been rendered in a
+Still open, unchanged from §20.5: **no dashboard change has ever been rendered in a
 browser** — the anticipated card styling, declined cards, thumbs and dataset tile are
 all verified only at the data layer. `code/simulator/index.html` remains untouched.
 
@@ -1333,13 +1433,13 @@ relabelling a number nobody re-measured.
 
 ---
 
-# §21 Synthetic corpus + the relevance model, and an honest draw (2026-08-06)
+# §22 Synthetic corpus + the relevance model, and an honest draw (2026-08-06)
 
 Same branch. The dataset was empty — labels only exist when a human clicks, so an
 unattended run gives thousands of ticks and no training signal.
 `tools/generate_sessions.py` simulates a household instead.
 
-## 21.1 It invents inputs, never outputs
+## 22.1 It invents inputs, never outputs
 
 Occupancy, presence, appliance use, daylight and temperature are fabricated. Every
 situation is then fed through the **real** `rules.evaluate_all()` and the real
@@ -1348,7 +1448,7 @@ the live system would have produced from that state. Sensor values carry
 `*_src="synthetic"`, files are named `session-synthetic-*`, and `build_dataset.py`
 reports the share automatically (`data provenance: contains_synthetic=446`).
 
-## 21.2 The occupant has preferences the rules cannot see
+## 22.2 The occupant has preferences the rules cannot see
 
 If labels came from the rules, a model trained on them would re-derive R1-R8 and know
 nothing. So the simulated occupant acts on HVAC, largely ignores lighting while home,
@@ -1362,7 +1462,7 @@ presence_away   +1.03    occupancy      -1.03    usd             +1.23
 phantom_standby -0.54    hvac_window    +0.38    peak_imminent   +0.53
 ```
 
-## 21.3 Two bugs that only appeared at volume
+## 22.3 Two bugs that only appeared at volume
 
 1. **Finding ids are STABLE.** `r2-living-ac` is the same string every time the A/C is
    left on, on any day — so an id is not a decision, an *occurrence* is. Both the
@@ -1376,7 +1476,7 @@ phantom_standby -0.54    hvac_window    +0.38    peak_imminent   +0.53
    is what the demo bulb is. Lighting is now a state machine with a
    forgets-on-departure probability.
 
-## 21.4 The result, which is a draw
+## 22.4 The result, which is a draw
 
 Chronological held-out split, measured against two baselines:
 
@@ -1400,12 +1500,12 @@ arithmetic we already had, and it did not improve the ranking" is a stronger pos
 than an unmeasured claim — and it is the same instinct as R7 refusing and the model
 flagging itself out of domain.
 
-## 21.5 State
+## 22.5 State
 
 - `data/sessions/` holds a 90-day synthetic corpus (~30 MB, gitignored).
 - `hub/models/relevance_lr.json` committed alongside `occupancy_lr.json`; both record
   what they were trained on, the sample count and their caveats.
 - `recorder.py` gained an overridable `clock` so generated rows carry simulated
   timestamps instead of all landing in one real second.
-- Unchanged from §19.5/§20.6: **no dashboard change has been rendered in a browser**,
+- Unchanged from §20.5/§21.6: **no dashboard change has been rendered in a browser**,
   and `code/simulator/index.html` is still untouched.

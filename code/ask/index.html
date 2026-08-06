@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ask the home — on-device Q&amp;A</title>
+<style>
+  :root{
+    --ink:#0d1219; --panel:#151c26; --panel-2:#1b2431; --line:#26303f;
+    --text:#e9edf2; --muted:#8b98a9; --npu:#7aa2f7; --ok:#55c17a; --warn:#f2a33c;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--ink); color:var(--text); font:15px/1.55 var(--sans);
+       padding:16px clamp(12px,4vw,40px) 60px; max-width:900px; margin:0 auto}
+  h1{font:600 20px/1.2 var(--sans); margin:0 0 4px}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:18px}
+  .badge{font:700 10px/1 var(--mono); letter-spacing:.12em; padding:4px 7px;
+         border-radius:4px; background:var(--npu); color:var(--ink); vertical-align:2px}
+
+  .chips{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px}
+  .chip{background:var(--panel); border:1px solid var(--line); color:var(--text);
+        border-radius:999px; padding:8px 14px; font-size:13px; cursor:pointer}
+  .chip:hover{border-color:var(--npu)}
+
+  .askbar{display:flex; gap:8px; margin-bottom:18px}
+  .askbar input{flex:1; background:var(--panel); border:1px solid var(--line);
+    color:var(--text); font:15px var(--sans); padding:12px 14px; border-radius:10px}
+  .askbar button{background:var(--npu); border:0; color:var(--ink); font-weight:700;
+    padding:12px 20px; border-radius:10px; cursor:pointer}
+  .askbar button:disabled{opacity:.5; cursor:default}
+
+  .qa{background:var(--panel); border:1px solid var(--line); border-radius:12px;
+      padding:16px 18px; margin-bottom:12px}
+  .q{color:var(--muted); font-size:13px; margin-bottom:8px}
+  .a{white-space:pre-wrap; min-height:22px}
+  .meta{display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+        margin-top:12px; padding-top:10px; border-top:1px dashed var(--line);
+        font:11px var(--mono); color:var(--muted)}
+  .tag{padding:3px 7px; border-radius:4px; font-weight:700; letter-spacing:.06em}
+  .tag.verified{background:rgba(85,193,122,.15); color:var(--ok)}
+  .tag.unverified{background:rgba(242,163,60,.15); color:var(--warn)}
+  .tag.llm{background:rgba(122,162,247,.15); color:var(--npu)}
+  .tag.template{background:rgba(139,152,169,.15); color:var(--muted)}
+  .unver{color:var(--warn)}
+  .cursor{display:inline-block; width:8px; background:var(--npu); animation:b 1s steps(2) infinite}
+  @keyframes b{0%,50%{opacity:1}51%,100%{opacity:0}}
+
+  .note{color:var(--muted); font-size:12px; margin-top:22px; line-height:1.6;
+        border-left:2px solid var(--line); padding-left:12px}
+  .err{color:var(--warn)}
+</style>
+</head>
+<body>
+
+<h1>Ask the home <span class="badge">ON-DEVICE</span></h1>
+<div class="sub">
+  Answered by Qwen3-4B on the Hexagon NPU. The model sees only a digest computed
+  in Python and may cite only numbers from it — every answer is then checked
+  mechanically, and the badge below says whether it passed.
+</div>
+
+<div class="chips" id="chips"></div>
+
+<div class="askbar">
+  <input id="q" placeholder="Ask about this home's energy use…" autocomplete="off">
+  <button id="go">Ask</button>
+</div>
+
+<div id="out"></div>
+
+<div class="note">
+  <b>What the badge means.</b> <span class="tag verified">verified</span> — every
+  number in the answer was traced back to the Python-computed digest.
+  <span class="tag unverified">unverified</span> — the answer contains a figure
+  that was not in the source, so the model either invented it or did arithmetic
+  it was told not to do. The text is still shown; it is labelled, not hidden.
+  <span class="tag template">template</span> means the NPU was unavailable and a
+  deterministic answer was used instead.
+</div>
+
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var out = $("out"), qIn = $("q"), go = $("go");
+  var busy = false;
+
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+
+  // Suggested questions come from the server so the page and hub/ask.py cannot
+  // drift apart. "Is anything unusual right now?" deliberately exercises the
+  // tier-1 edge classifier, so one click touches both AI tiers.
+  fetch("/api/ask/suggestions").then(function(r){ return r.json(); })
+    .then(function(list){
+      $("chips").innerHTML = list.map(function(q){
+        return '<button class="chip">' + esc(q) + '</button>';
+      }).join("");
+      Array.prototype.forEach.call(document.querySelectorAll(".chip"), function(c){
+        c.addEventListener("click", function(){ qIn.value = c.textContent; ask(); });
+      });
+    }).catch(function(){});
+
+  function ask(){
+    var q = (qIn.value || "").trim();
+    if(!q || busy) return;
+    busy = true; go.disabled = true;
+
+    var card = document.createElement("div");
+    card.className = "qa";
+    card.innerHTML = '<div class="q">' + esc(q) + '</div>'
+                   + '<div class="a"></div><div class="meta">thinking…</div>';
+    out.insertBefore(card, out.firstChild);
+    var aEl = card.querySelector(".a"), mEl = card.querySelector(".meta");
+    aEl.innerHTML = '<span class="cursor">&nbsp;</span>';
+
+    var t0 = Date.now(), acc = "", done = null;
+
+    fetch("/api/ask", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question: q})
+    }).then(function(r){
+      if(!r.ok || !r.body) throw new Error("HTTP " + r.status);
+      var reader = r.body.getReader(), dec = new TextDecoder(), buf = "";
+
+      function pump(){
+        return reader.read().then(function(res){
+          if(res.done) return finish();
+          buf += dec.decode(res.value, {stream:true});
+          // The endpoint emits newline-delimited JSON, one object per line.
+          var lines = buf.split("\n");
+          buf = lines.pop();
+          lines.forEach(function(line){
+            if(!line.trim()) return;
+            var obj; try{ obj = JSON.parse(line); }catch(e){ return; }
+            if(obj.delta){ acc += obj.delta; aEl.textContent = acc; }
+            if(obj.done){ done = obj; }
+          });
+          return pump();
+        });
+      }
+      return pump();
+    }).then(function(){
+      // pump() resolves via finish()
+    }).catch(function(e){
+      aEl.innerHTML = '<span class="err">Could not reach the hub — ' + esc(e.message) + '</span>';
+      mEl.textContent = "";
+      busy = false; go.disabled = false;
+    });
+
+    function finish(){
+      aEl.textContent = acc || (done && done.answer) || "(no answer)";
+      var secs = ((Date.now() - t0) / 1000).toFixed(1);
+      if(done){
+        var prov = done.provenance || "unchecked";
+        var by = done.answered_by || "?";
+        mEl.innerHTML =
+            '<span class="tag ' + esc(by) + '">' + (by === "llm" ? "NPU" : "TEMPLATE") + '</span>'
+          + '<span class="tag ' + esc(prov) + '">' + esc(prov) + '</span>'
+          + '<span>' + esc(done.latency_s != null ? done.latency_s : secs) + 's</span>'
+          + '<span>' + esc(done.figures_offered || 0) + ' figures offered</span>'
+          + ((done.unverified && done.unverified.length)
+              ? '<span class="unver">not in source: ' + esc(done.unverified.join(", ")) + '</span>'
+              : '');
+      } else {
+        mEl.textContent = secs + "s";
+      }
+      busy = false; go.disabled = false;
+    }
+  }
+
+  go.addEventListener("click", ask);
+  qIn.addEventListener("keydown", function(e){ if(e.key === "Enter") ask(); });
+})();
+</script>
+</body>
+</html>

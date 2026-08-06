@@ -1,254 +1,214 @@
-# Demo script — 5 minutes, timed
+# Demo script — the 2-minute video
 
-Five minutes is much shorter than it feels. This script is timed to 4:45, leaving
-15 seconds of slack. **Rehearse with a timer three times on Thursday.**
+**This video IS the submission demo, not a backup for a live run.** That changes how you
+shoot it: every beat can be retaken, nothing has to survive a live network, and dead time
+gets cut rather than narrated.
 
-**Point-weighted criteria — this script is built to hit all four:**
+Companion docs: `10_DEMO_PLAN.md` §8 (shot list rationale), §9 (hardware corrections you
+must apply before filming), §10 (pre-shoot checklist that actually works).
 
-| Criterion | Points | Where this script earns it |
-|---|---|---|
-| Technical Implementation | **40** | the measured-numbers slide + the NPU/edge-filtering figures |
-| Use-Case & Innovation | 25 | context fusion + the closed loop |
-| Deployment & Accessibility | 20 | "3 commands, 32 tests" line |
-| Presentation & Documentation | 15 | timing, clarity, the audit panel |
-
-**Your assigned archetype is E — IoT Sensor → Actuator Physical AI.** The physical
-actuation is not a bonus; it is the thing being judged. **Do not run out of time before
-the servo moves.** If you are behind at 3:00, skip the cloud report, not the actuation.
-
-**Demo order is randomized and emailed Thursday morning.** Assume you are first.
+**Previous version of this file described the retired breadboard/servo/Cloud-AI-100 build.
+All of that is gone** — sensing is Modulino over Qwiic, actuation is real Kasa devices, and
+the weekly report runs on the X Elite hub itself.
 
 ---
 
-## Slide deck — 6 slides, no more
+## The 120 seconds
 
-| # | Slide | On screen | Seconds |
+| # | Shot | Time | Action on camera |
 |---|---|---|---|
-| 1 | Title + the problem | Project name, team, one sentence | 25 |
-| 2 | Architecture | The four-tier diagram, actuator arrow highlighted | 40 |
-| 3 | **LIVE DEMO** | Dashboard + phone side by side | 165 |
-| 4 | **Measured performance** | The benchmark table + QUAD profile | 35 |
-| 5 | Why this is different | Four claims | 30 |
-| 6 | What's next | Honest limitations | 15 |
+| 1 | Hook | 0:00–0:12 | Finger presses a board button → **real bulb goes dark**. No screen in frame. |
+| 2 | Sense → act | 0:12–0:38 | Presence → away → finding appears → Approve → bulb dark, watts → 0.0, card flips to *realized*. |
+| 3 | AI decides | 0:38–0:56 | Plan panel: two findings ranked, dryer **deferred** in the model's words. |
+| 4 | The refusal | 0:56–1:20 | **Press the knob** → 29.5 °C → Approve the A/C → **HTTP 409**, nothing switches. |
+| 5 | Caught | 1:20–1:42 | `/ask` → answer streams → **amber `unverified`** badge, invented figure listed. |
+| 6 | Three tiers | 1:42–2:00 | µs → ms → s table. Close on the realized dollar figure. |
 
-Put the dashboard on the projector, the phone on a document camera or held up, **and the
-servo/lamp where the judges can see it move.** Rehearse the physical choreography —
-fumbling costs 30 seconds.
-
-**Nominate one speaker and one driver.** The driver never talks; the speaker never
-touches the keyboard.
+**Over budget? Cut shot 3.** Shots 4 and 5 already prove the model decides, with more
+drama. Fold its line into shot 6 as a caption.
 
 ---
 
-## The script
+## Shot 1 — Hook (0:00–0:12)
 
-### [0:00–0:25] Problem
+- **Do:** press button A on the Modulino Buttons board. The bulb goes dark. Hold two beats.
+  Then a slow pan across the bench: UNO Q, knob, bulb, plug.
+- **Caption:** *"A button on the board. A real bulb. No cloud, no phone."*
+- **Must be in frame:** the finger, the board, the bulb — all three, no browser.
+- **Why first:** it earns "real hardware" before asking anyone to trust a screen. The LED
+  on the button confirms the *device* switched, not just that a command was sent.
 
-> "Homes waste energy because devices don't know what's happening around them. Your
-> A/C doesn't know you left. Your lights don't know the sun is out. And your utility
-> charges you 81% more between 4 and 9 PM than it does overnight.
->
-> We built the AI Home Energy Concierge — three devices and a cloud accelerator that
-> notice waste, explain what it's costing you in plain language, and then — with your
-> approval — **physically switch it off.**"
+## Shot 2 — Sense → act (0:12–0:38)
 
-### [0:25–1:05] Architecture
+- **Do:** on the simulator, toggle presence to **away**. Wait one 5 s eval cycle. A critical
+  finding appears with a price. Tap **Approve**. The bulb goes dark; the dashboard wattage
+  falls to 0.0 W; the card flips to *realized*.
+- **Caption:** *"Detected, priced, approved by a human, physically switched."*
+- **Retake if:** the wattage shown is 1.7 W — set the bulb to 100 % brightness first
+  (`10_DEMO_PLAN.md` §9.1), it should read ~10 W falling to 0.0.
+- **Do not** try to stage the bulb from the simulator. Metered loads are device-owned by
+  design and the simulator will refuse (§9.5).
 
-Point at each tier as you name it. **The "why" is what gets scored.**
+## Shot 3 — The AI decides (0:38–0:56)
 
-> "Four tiers, and where each piece of intelligence lives is a deliberate choice.
->
-> The **Arduino UNO Q** is a dual-brain board. The STM32 microcontroller, running over
-> Zephyr, samples PIR, light and temperature in hard real time — and drives the servo.
-> The Qualcomm Dragonwing running Debian does median smoothing, an occupancy state
-> machine, and speaks MQTT over Wi-Fi. It's a network peer doing its own edge
-> processing — not a sensor on a USB cable.
->
-> The **Snapdragon X Elite Copilot+ PC** is the orchestrator: broker, state fusion,
-> deterministic rules engine, and a local LLM running on the 45-TOPS NPU through
-> **GenieX**. On-device, because latency and privacy both matter — your occupancy data
-> never leaves the house.
->
-> The **Galaxy S25** contributes the one signal nothing else can — are you actually
-> home — and it's where you approve the action.
->
-> And **Qualcomm AI Cloud 100** does the heavy weekly analysis, off the critical path."
+- **Do:** have two findings live at once — the A/C wasting while away, and a dryer-class
+  load inside the peak window. Show the plan panel ranking them.
+- **The point:** the deterministic path would sort by dollar value and put the dryer first.
+  The model **defers** the dryer as legitimate-but-mistimed and promotes the A/C. Read the
+  model's own `why_this_order` text on screen, not a line you wrote.
+- **Caption while it computes:** `plan synthesis · 11.5 s · one call per change`
+- **Editing:** cut the wait, keep the caption. See the honesty rule below.
 
-### [1:05–3:50] LIVE DEMO — the core
+## Shot 4 — The refusal (0:56–1:20) — the money shot
 
-**Beat 1 (20s) — baseline.** Dashboard showing everything running legitimately.
+- **Do:** **press** the knob (one click, 22 °C → 29.5 °C). Cut to the dashboard showing
+  29.5 °C. Tap Approve on the A/C recommendation. **HTTP 409** — nothing switches, the
+  refusal reason is on screen.
+- **Caption:** *"It refuses to execute its own advice."*
+- **Do not turn the dial** — that is ~60 detents of dead screen time.
+- **Why it lands:** every other team's AI does what it is told. Yours declines, with a
+  stated reason, and the guardrail sits in front of the actuator rather than in the prompt.
 
-> "I'm home, watching TV. 1,460 watts. It's 6:30 PM, so we're on-peak at 58 cents a
-> kilowatt-hour. Notice: **no recommendations.** Everything running is actually in use.
-> A system that nags you constantly gets ignored."
+## Shot 5 — Caught (1:20–1:42) — the most novel beat
 
-**Beat 2 (20s) — the trigger.** Tap AWAY on the phone. Hold it up.
+- **Do:** open `/ask`, type **"What if I shift the dryer to 9 PM?"**. Let the answer stream.
+  Point the camera at the badge.
+- **Aim for amber.** An `unverified` badge proves *the check works*; a green one only proves
+  the model behaved that afternoon.
+- **Measured hit rate: 6/6.** That question produced an `unverified` badge on 3/3 takes
+  against the fixed fixture and 3/3 against live hub state. Expect it to land, but it is a
+  model output, not a guarantee — budget two or three takes, not forty.
+- **Do not substitute a different question without testing it.** Hit rate is
+  state-dependent: *"What percentage of my bill is waste?"* also scored 3/3 on the fixture
+  and then **0/3** on live state. The dryer question is the one that has been checked in
+  both.
+- **Guaranteed fallback:** `python hub/provenance.py` plants and catches a hallucinated
+  number deterministically (7/7 cases, no model involved). Less slick, always works.
+- **Caption:** *"$0.39 was given to it. $0.19 was not — it did the arithmetic anyway. We
+  caught it mechanically, in 110 µs."*
+- **If it comes up green two or three takes running,** do not keep rolling hoping for
+  amber — switch to `python hub/provenance.py` on camera and narrate the same point. A
+  green badge is still a true result; grinding for a failure you want to film is the
+  wrong instinct on a project built around not overstating things.
 
-> "Now I leave. The phone crosses the geofence and tells the hub I'm away."
+## Shot 6 — Three tiers and close (1:42–2:00)
 
-**Beat 3 (40s) — THE MONEY MOMENT.** Recommendation appears; the phone buzzes.
+- **Do:** the µs → ms → s table, then land on the realized dollar figure.
+- **Say:** 30.6 µs on the board's A53 · 3.3 s on the Hexagon NPU · 110 µs to check every
+  number the model emitted.
+- **Close on the number, not the architecture.**
 
-> "Motion times out. The lights and A/C are still running. Here's the recommendation —
-> on the dashboard and pushed to my phone.
->
-> 'Cooling an empty home.' A dollar twenty-eight so far, 2.2 kilowatt-hours, half a
-> kilo of CO₂.
->
-> And this is the part I want to be judged on." **Expand the audit disclosure.**
-> "1,100 watts times 7,200 seconds is 2.2 kilowatt-hours, times 58 cents on-peak is a
-> dollar twenty-eight. The evidence that triggered the rule. The source of the power
-> figure.
->
-> **The language model wrote the sentence. Python did the arithmetic.** The model never
-> touches a number — that's an architectural rule, not a convention."
+---
 
-**Beat 4 (40s) — CLOSE THE LOOP. The archetype moment; do not rush it.**
+## The one editing rule
 
-> "Now watch what happens when I approve it."
+You may cut dead time. You may **not** imply speed the system does not have.
 
-Tap **Approve & turn it off** on the phone. **Pause. Let everyone watch the servo move
-and the lamp go out.**
+- Cutting the 11.5 s plan call is fine — **show the number on screen while you do it.**
+- Do **not** speed-ramp the bulb switching; it is genuinely ~2 s and should play real.
+- Retaking until the model gives a good *ranking* is directing. Retaking until it gives a
+  *number you liked* is fabrication — and shot 5 is literally about that line.
 
-> "The hub published a command, the UNO Q drove the servo, the servo pressed a real
-> switch, and the board sent back a confirmation. Sense, reason, recommend, human
-> approves, **physical action**, confirm.
->
-> And notice the dashboard: that number moved out of 'avoidable' and into **'realized.'**
-> It's no longer 'you could save this' — it's 'you saved this.'"
+---
 
-**Beat 5 (30s) — THE SAFETY STORY. This is your best differentiator.**
+## Before you shoot
 
-> "But here's the thing I actually want to show you."
+Full checklist in `10_DEMO_PLAN.md` §10. The four that will actually bite you:
 
-Raise the room temperature (sensor injection or the real sensor), then tap Approve again.
-
-> "The room is now 29 degrees. I'm asking the system to switch off the air conditioning,
-> and it **refuses.** That's rule R7, our comfort guardrail — and it isn't advisory, it's
-> a pre-flight check on the actuator. The system will not carry out its own
-> recommendation if doing so would make your home uncomfortable.
->
-> **That's the difference between automation and judgment.**"
-
-**Beat 6 (20s) — context fusion.**
-
-> "One more. Next morning, I'm home, the room is occupied — but it's 640 lux of daylight
-> with the lights on. A motion sensor sees an occupied room and does nothing. We flag it,
-> because we fused light level with occupancy. And the dryer at 5 PM: we charge only the
-> **rate delta**, because the load is legitimate — only its timing is wasteful."
-
-**Beat 7 (15s) — the cloud tier.** Click "Generate weekly deep report."
-
-> "For depth we burst to AI Cloud 100 — a larger model over a digest we compute locally.
-> Ranked weekly plan, and the retrofit with the best payback: a $130 thermostat, 2.4
-> months."
-
-### [3:50–4:25] Measured performance — the 40-point slide
-
-**Do not skip this.** It is the heaviest criterion and most teams will have nothing here.
-
-> "Technical implementation is judged on latency, resource use and energy efficiency, so
-> we measured instead of claiming.
->
-> The whole reasoning tier — eight rules, the energy model, narration — runs in **35
-> microseconds**. The edge tier is effectively free. All the latency that matters is LLM
-> inference, which is exactly why it's the only part we put on the NPU.
->
-> **Edge filtering removes 89% of broker traffic**: the UNO Q samples at 1 Hz but only
-> publishes on a material change or a 10-second heartbeat. 68 messages instead of 600.
->
-> The whole hub reasoning stack is **33 megabytes** of RSS.
->
-> And there's a symmetry we like: **an energy-saving app that measures its own energy
-> cost.** These numbers come from `benchmark.py` in the repo — you can reproduce them."
-
-*(If you have the QUAD profile: "and these NPU latency and power figures are from
-`/quad-profile`, measured on real silicon.")*
-
-### [4:25–4:45] Why this is different + what's next
-
-> "Four things. **Where the AI lives is the design** — rules at the edge in microseconds,
-> a small model on the NPU for private narration, a large model in cloud for depth.
-> **Auditable AI** — the model narrates, Python computes, every number expands to its
-> formula. **Context fusion** — this recommendation is impossible on any single one of
-> these devices. And **the loop closes safely** — physical action, human-approved, with a
-> guardrail that can veto the machine.
->
-> Honest limitations: load power is modelled, not metered — a clamp meter is next. Lux is
-> uncalibrated, so we use it as a threshold, not a measurement. And actuation is
-> human-approved by design; we'd want a lot more validation before removing the human.
->
-> Repo, README, MIT license, 32 tests, and a three-command quickstart are up. Thanks."
+1. **Bulb brightness → 100.** Otherwise shot 2 shows 1.7 W and lands on nobody.
+2. **Start the hub with all three flags** — they default off:
+   `AI_ANOMALY=1 AI_PLAN=1 AI_ASK=1 python hub/server.py`
+3. **Check the CRLF trap:**
+   `adb shell "grep -c $'\r' .../board.env"` — non-zero means the publisher is serving
+   **invented** sensor data while looking perfectly healthy.
+4. **Verify flags on the running hub, not your shell:** `curl /ask` → 200, and `"plan"`
+   present in `/api/state`. A correct shell variable and a hub started without it look
+   identical from outside.
 
 ---
 
 ## Q&A prep — the questions you will get
 
 **"Where do the wattage numbers come from?"**
-> Published typical figures — DOE and Energy Star — and every entry carries its source
-> string, visible in the audit panel. We model load power rather than metering it; a smart
-> plug is the next step. We'd rather show a defensible estimate than a fabricated
-> measurement.
+> Both, and the dashboard says which. The bulb and the A/C plug are metered devices — those
+> watts are **measured** and read back from the device after every switch. Anything without
+> a meter falls back to published DOE/Energy Star figures, and every entry carries its
+> source string. On screen you'll see `real device · measured` next to `simulated ·
+> modelled`. We'd rather label the difference than average it away.
 
-**"Is it really running on the NPU?"**
-> Yes — GenieX with the `qairt` runtime, which is NPU-only, using a pre-compiled AI Hub
-> bundle. We also measured the deterministic path as a control, so we can tell you what
-> the model actually costs versus the arithmetic. *(If QUAD profiling is done: and these
-> are the `/quad-profile` numbers from real silicon.)*
-
-**"Did you use QUAD?"**
-> For profiling, yes — that's where our NPU numbers come from. We deliberately skipped
-> `generate_code`: your own project sheet flags it as blocked by gap **G6**, the UNO Q
-> sensor/actuator and GPIO codegen. Rather than wait on it or ship mock output, we wrote
-> and tested that layer by hand. A pending platform gap didn't become a project blocker.
+**"What is the AI actually deciding?"**
+> Three things, in three different places. A learned classifier on the board's CPU decides
+> whether the current state is *unusual* — it catches cases no fixed threshold expresses,
+> like the A/C running at 3 a.m. in an occupied, comfortable room, where all seven rules
+> fire nothing. The NPU model decides the *order* to act in and what can wait. And it
+> answers questions. What it never decides is a number — that stays in Python.
 
 **"What if the LLM hallucinates a saving?"**
-> Structurally it can't. It receives pre-computed figures, and after the call we overwrite
-> every numeric field from the deterministic source. If the prose contradicts the computed
-> value, the computed value wins. And if the model is unreachable, a Python narrator takes
-> over — that's what the "TEMPLATE" badge on the card means.
+> Two independent defences. Structurally, every numeric field is overwritten from the
+> deterministic source after the call, so prose can never move a figure. And mechanically,
+> we extract every number the model emitted and check it appears in what it was given —
+> `hub/provenance.py`, 110 µs per response. It caught the model doing forbidden arithmetic
+> during development, unprompted: it was given $0.39, and wrote $0.19. Most teams answer
+> this question with "we told it not to." We answer with a violation count.
+
+**"Isn't the anomaly model trained on fake data?"**
+> Yes — 14 simulated days, holdout accuracy 0.9714. And that number measures how separable a
+> *synthetic* distribution is, not real-world accuracy. It says so in the model file, in the
+> UI tooltip, and in the README, in the same breath as the number. In deployment it would
+> retrain on real logged history. We'd rather label it than imply otherwise.
+
+**"Why not run the LLM on the UNO Q?"**
+> That board is a quad Cortex-A53 with no on-device AI stack at all — no DSP skel, no SNPE,
+> its GPU is software rasterisation. A 4B model there is physically wrong. But AI at the
+> edge doesn't have to mean an LLM: a trained classifier runs there in **30.6 µs**, in pure
+> Python, with zero new dependencies. That split is the design, not a compromise.
+
+**"Is it really running on the NPU?"**
+> Yes — GenieX with the `qairt` runtime, which is NPU-only, on a pre-compiled AI Hub bundle.
+> We measured the deterministic path as a control, so we can tell you what the model costs
+> versus the arithmetic: 3.3 s against 0.014 ms.
+
+**"Did you use QUAD?"**
+> For profiling. We deliberately skipped `generate_code` — the project sheet flags it as
+> blocked by gap G6, the UNO Q sensor/actuator codegen. Rather than wait or ship mock
+> output, we wrote and tested that layer by hand.
 
 **"Isn't approving each action tedious? Why not full automation?"**
-> Deliberate. Note R7 refusing to switch off the A/C at 29 degrees — that's the system
-> declining to execute its own advice. Full autonomy is a small code change; earning the
-> trust to enable it is the hard part, and we'd want much more validation first. The
-> guardrail architecture is what would make that safe.
+> Deliberate. Watch R7 refuse to switch off the A/C at 29.5 °C — that's the system declining
+> to execute its own advice, and the gate sits in front of the actuator, not in the prompt.
+> Full autonomy is a small code change; earning the trust to enable it is the hard part.
+
+**"That's a fan, not an air conditioner."**
+> Correct, and the software has no idea. It reasons about a load by name and measured
+> wattage, not brand. Swap the fan for a real 1.1 kW compressor and nothing in the code
+> changes. We'd rather show you the substitution than hide it.
 
 **"How do you know it's really an open window in R4?"**
-> We don't, and we say so. It's a heuristic — A/C running 15+ minutes, temperature not
-> falling, humidity above 60%. The evidence list literally says "HEURISTIC: we infer an
-> open window, we do not sense it directly."
-
-**"What's genuinely novel? Smart thermostats exist."**
-> A thermostat sees one room and one load. Our recommendations require four independent
-> context sources fused together, and the deliberate placement of intelligence across four
-> tiers is the contribution — plus auditability, which no commercial product in this space
-> offers.
+> We don't, and we say so. It's a heuristic — A/C running 15+ min, temperature not falling,
+> humidity above 60 %. The evidence list literally says "HEURISTIC: we infer an open window,
+> we do not sense it directly."
 
 **"Does it scale to a whole house?"**
-> The MQTT contract is already per-room and per-load — `home/sensors/<room>`,
-> `home/command/<room>/<load>` — and the rules iterate over rooms. Adding rooms is adding
-> publishers. We demo one room because multiple rooms demo identically and we'd rather
-> show depth.
+> The MQTT contract is already per-room and per-load, and the rules iterate over rooms.
+> Adding rooms is adding publishers. We demo one room because multiple rooms demo
+> identically and we'd rather show depth.
 
 **"How hard is it to install?"**
-> Three commands with no hardware, and `smoke_test.py` runs 38 checks so you know
+> Three commands with no hardware, and `smoke_test.py` runs 32 checks so you know
 > immediately whether your environment is sound. Every tier has a tested fallback.
 
 ---
 
-## Stage discipline
+## Shooting discipline
 
-- **Protect the actuation beat.** It is the archetype. If you're behind at 3:00, cut the
-  cloud report and the daylight rule, never the servo.
-- **Say "simulated" out loud** if you're on the simulator. Judges respect it; getting
-  caught implying otherwise is fatal.
-- **Do not debug on stage.** Move to the next fallback rung mid-sentence: *"Venue Wi-Fi is
-  fighting us — switching to our simulated sensor feed. Everything downstream is live."*
-- **If the servo fails**, say plainly that the command reached the board and the actuator
-  is the failed link — then show the video. Never imply a physical action happened when it
-  didn't.
-- **Do not read the slides.** They are backdrop.
-- **Lead with the dollar figure**, not the architecture. Judges remember "$265 a year"
-  far longer than "MQTT over Wi-Fi."
-- **For Team's Choice** (other teams vote): the servo moving and the audit panel are what
-  engineers remember. Make sure other teams see the demo.
+- **Protect shots 1, 2 and 4.** Physical action and the refusal are the archetype and the
+  differentiator. If you run out of time, cut shot 3, then the close, never these.
+- **Label the simulation on screen**, not just in narration. Occupancy and lux are
+  simulated; the code already says so in `lux_src` / `occ_src`. Use it.
+- **Never imply a physical action that didn't happen.** If a Kasa device misses, reshoot —
+  you have that luxury now. Do not cut around a failure to make it look successful.
+- **Lead with the dollar figure**, not the architecture. It is what gets remembered.
+- **For Team's Choice**, the two things engineers remember are the bulb switching from a
+  button press and the amber `unverified` badge. Make sure both are unmissable.
+- **Shoot it early.** The video is the submission; a missing `demo.mp4` costs more than any
+  feature you could add in the same hour.

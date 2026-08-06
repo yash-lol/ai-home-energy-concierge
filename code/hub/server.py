@@ -33,8 +33,8 @@ try:
 except ImportError:
     mqtt = None
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
@@ -49,6 +49,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DASHBOARD_DIR = ROOT / "dashboard"
 PHONE_DIR = ROOT / "phone"
 SIMULATOR_DIR = ROOT / "simulator"
+ASK_DIR = ROOT / "ask"
 
 
 class StateStore:
@@ -74,6 +75,15 @@ class StateStore:
         self.suppressed: List[Dict] = []
         self.suppressed_ids: set = set()
         self.considered = 0          # offered + suppressed, for the "considered N" line
+        # Tier-2 plan, when AI_PLAN=1. Empty dict = no plan this cycle,
+        # which the UI renders as the plain ranked list it always had.
+        self.plan: Dict = {}
+        # Autonomous-demo cue. The autopilot posts a control change here and the
+        # simulator page applies it to its OWN widget, so a scripted run drives the
+        # visible UI rather than quietly POSTing behind it. Monotonic id: the page
+        # acts only on a cue it has not seen, so a re-render never replays one.
+        self.demo_cue: Dict = {}
+        self._demo_cue_seq = 0
         self.lock = threading.Lock()
 
     # -- actuation ---------------------------------------------------------
@@ -291,6 +301,8 @@ class StateStore:
                        "clock": now_dt.strftime("%H:%M")},
             "mqtt_connected": self.mqtt_connected,
             "recos": [r.to_dict() for r in self.latest_recos(12)],
+            "plan": self.plan,
+            "demo_cue": self.demo_cue,
             "applied_ids": sorted(self.applied_ids),
             "suppressed": list(self.suppressed),
             "considered": self.considered,
@@ -413,6 +425,25 @@ def evaluation_tick() -> List[Recommendation]:
                       row.get("reason", ""), row.get("gate", "comfort_guardrail"),
                       row.get("usd", 0.0))
         print(f"[veto] {reco_id}: {row.get('reason', '')}")
+
+    # TIER 2: one plan-synthesis call per CHANGE of the finding set (the planner
+    # caches on frozenset of ids), not per cycle and not per finding. Strictly
+    # cheaper than the per-finding narration below, which is left completely
+    # intact underneath as the fallback.
+    #
+    # The vetoed findings are passed in too. The planner's system prompt already
+    # asks it to "explain the tradeoff in one sentence" when the guardrail
+    # suppressed something — before this branch it was never actually given the
+    # suppressed set, because evaluate() dropped it. Now it can answer.
+    if os.environ.get("AI_PLAN", "0") == "1":
+        try:
+            import planner
+            STORE.plan = planner.PLANNER.plan(
+                findings,
+                [f"{v.rule_name} on {v.load_key}: {v.headline}" for v in vetoed],
+            ).to_dict()
+        except Exception as exc:
+            print(f"[eval] planner unavailable: {exc}")
 
     fresh: List[Recommendation] = []
     now = time.time()
@@ -537,6 +568,80 @@ async def phone():
     return FileResponse(PHONE_DIR / "index.html")
 
 
+# --------------------------------------------------------------------------
+# TIER 3: natural-language Q&A (AI_ASK=1). Additive — its own page and its own
+# endpoints, so nothing here touches the simulator or the approve flow.
+# --------------------------------------------------------------------------
+
+@app.get("/ask")
+async def ask_page():
+    if os.environ.get("AI_ASK", "0") != "1":
+        return JSONResponse({"error": "Q&A disabled; start the hub with AI_ASK=1"},
+                            status_code=404)
+    return FileResponse(ASK_DIR / "index.html")
+
+
+@app.post("/api/demo/cue")
+async def api_demo_cue(request: Request):
+    """Ask the simulator page to move one of its own controls.
+
+    Used by tools/demo_autopilot.py. The point is that a scripted demo should be
+    visible: driving the hub directly would change the numbers while the
+    simulator's switches sat still, which looks like the UI is broken rather
+    than like the demo is running.
+    """
+    body = await request.json()
+    control = str(body.get("control", "")).strip()
+    if control not in ("presence", "occupancy", "lux", "humidity", "temp_c"):
+        return JSONResponse({"error": f"unknown control {control!r}"}, status_code=400)
+    with STORE.lock:
+        STORE._demo_cue_seq += 1
+        STORE.demo_cue = {"id": STORE._demo_cue_seq, "control": control,
+                          "value": body.get("value"),
+                          "note": str(body.get("note", ""))[:120],
+                          "ts": time.time()}
+    await broadcast({"type": "state", "data": STORE.public_state()})
+    return JSONResponse({"ok": True, "cue": STORE.demo_cue})
+
+
+@app.get("/api/ask/suggestions")
+async def ask_suggestions():
+    try:
+        import ask as ask_mod
+        return JSONResponse(ask_mod.SUGGESTED_QUESTIONS)
+    except Exception:
+        return JSONResponse([])
+
+
+@app.post("/api/ask")
+async def api_ask(request: Request):
+    """Stream an answer as newline-delimited JSON.
+
+    Streaming is not decoration: first token lands in ~0.15 s while the full
+    answer takes ~2.5 s, so the reply reads as immediate. The final line carries
+    the provenance verdict the page renders as a badge.
+    """
+    if os.environ.get("AI_ASK", "0") != "1":
+        return JSONResponse({"error": "Q&A disabled"}, status_code=404)
+    try:
+        import ask as ask_mod
+    except Exception as exc:
+        return JSONResponse({"error": f"ask unavailable: {exc}"}, status_code=503)
+
+    body = await request.json()
+    question = str(body.get("question", "")).strip()
+    if not question:
+        return JSONResponse({"error": "question is required"}, status_code=400)
+
+    state = STORE.public_state()
+
+    def gen():
+        for chunk in ask_mod.ASKER.stream(question, state):
+            yield json.dumps(chunk) + "\n"
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
+
+
 @app.get("/simulator")
 async def simulator():
     """Sensor simulator — stands in for hardware we do not have.
@@ -623,7 +728,16 @@ async def api_apply(body: Dict):
     if rec is None:
         return JSONResponse({"error": f"unknown reco_id {reco_id!r}"}, status_code=404)
 
-    load_key = f"{rec.room}/{_load_from_rule(rec)}"
+    load_name = _load_from_rule(rec)
+    if not load_name:
+        # Cannot determine which device this concerns. Refuse rather than act on
+        # a guess — see the note in _load_from_rule().
+        return JSONResponse(
+            {"error": "cannot determine which load this recommendation concerns",
+             "reco_id": reco_id, "rule_name": rec.rule_name,
+             "hint": "the Finding must carry load_key, or rule_name must be mapped"},
+            status_code=422)
+    load_key = f"{rec.room}/{load_name}"
     action = body.get("action", "off")
     if action not in ("on", "off"):
         return JSONResponse({"error": "action must be 'on' or 'off'"}, status_code=400)
@@ -682,7 +796,34 @@ def _load_from_rule(rec) -> str:
         "peak_hour_heavy_load": "dryer",
         "peak_window_imminent": "dryer",
     }
-    return by_rule.get(rec.rule_name, "lights")
+    mapped = by_rule.get(rec.rule_name)
+    if mapped:
+        return mapped
+    # Unknown rule_name. The old default was "lights", which was silently WRONG
+    # for any detector not in the table above: a learned finding on the A/C
+    # resolved to living/lights, so approving it would switch the wrong device
+    # AND skip the comfort guardrail, which keys off the load name. The Finding
+    # has always known its own load; prefer that over guessing from the rule.
+    # Behaviour for the six mapped rules is unchanged.
+    lk = getattr(rec, "load_key", "") or ""
+    if lk:
+        return lk.split("/")[-1]
+
+    # Nothing left to go on. Return "" and let the caller REFUSE, rather than
+    # guessing a device.
+    #
+    # This used to `return "lights"`. That line is what made the learned-A/C
+    # incident possible, and deleting only the specific trigger would have left
+    # the mechanism in place for whatever touches Recommendation construction
+    # next — Recommendation.load_key defaults to "", so a new construction site,
+    # a deserialised object, or a third-party rule inherits the silent guess.
+    # An actuator that picks a plausible-looking device when it does not know
+    # which device is meant is the single most dangerous shape of code in this
+    # project. Fail loudly instead; a 422 is recoverable, switching the wrong
+    # appliance in someone's home is not.
+    print(f"[apply] REFUSING: cannot determine the load for reco {rec.id!r} "
+          f"(rule_name={rec.rule_name!r}, load_key empty)")
+    return ""
 
 
 def _guardrail_allows(snap: Dict, rec, load_key: str, action: str, now_dt):

@@ -34,7 +34,24 @@ LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://127.0.0.1:18181/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "ai-hub-models/Qwen3-4B-Instruct-2507")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_ENABLED = os.environ.get("LLM_ENABLED", "1") not in ("0", "false", "False")
-LLM_TIMEOUT_S = 8
+
+# Measured on this machine's GenieX / Qwen3-4B W4A16 on the Hexagon NPU:
+# latency tracks OUTPUT LENGTH, steeply.
+#
+#     135 chars ->  2.6 s        378 chars ->  5.5 s
+#    1060 chars -> 11.4 s       ~600 tokens -> ~135 s
+#
+# The old settings (max_tokens=300, no brevity instruction) let the model ramble
+# to ~1060 chars, so every narration took ~11.4 s and blew the 8 s timeout — it
+# fell back to the template EVERY time, silently. The NPU was never actually
+# narrating anything, while README quoted 3110 ms.
+#
+# So: cap the output and ask for brevity, which is what actually buys the
+# latency, and give the timeout real headroom (~3x the p50) so a slow call
+# completes instead of being abandoned mid-generation. The template fallback is
+# unchanged and still catches a genuinely dead endpoint.
+LLM_TIMEOUT_S = int(os.environ.get("LLM_TIMEOUT_S", "20"))
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "160"))
 
 MAX_TITLE_CHARS = 60
 MAX_ACTIONS = 3
@@ -68,6 +85,18 @@ class Recommendation:
     # "detected" = already spent, "anticipated" = still avoidable. Carried through
     # to the UI because a projected figure must never be shown as an incurred one.
     kind: str = "detected"
+    # Carried through from the Finding so the UI can separate a deterministic
+    # rule from a learned detection. Without this the distinction dies at the
+    # narration boundary: the Finding knows, the Recommendation does not, and
+    # every card on screen looks equally rule-derived. Preserving "every
+    # recommendation traces to a named rule" depends on being able to show which
+    # ones do not.
+    detector: str = "rule"          # "rule" (R1-R6) or "learned"
+    anomaly_score: Optional[float] = None
+    # The load this concerns, carried from the Finding. server.py historically
+    # re-derived it from rule_name via a lookup table; anything not in that table
+    # silently became "lights". A learned finding is not in that table.
+    load_key: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -85,7 +114,12 @@ Reply with a single JSON object and nothing else:
 {"title": "<max 60 chars>", "body": "<at most 2 sentences, second person, friendly>", \
 "actions": ["<imperative, under 8 words>", ...]}
 
-At most 3 actions. No markdown, no code fences, no commentary outside the JSON."""
+At most 3 actions. No markdown, no code fences, no commentary outside the JSON.
+
+BE BRIEF. Keep the whole reply under 350 characters. Output length, not model \
+size, is what makes this slow on the NPU that generates it, so every extra word \
+costs real latency. Body: at most 2 short sentences. Do not repeat a number you \
+were given more than once."""
 
 
 def _user_prompt(finding) -> str:
@@ -146,7 +180,7 @@ class LLMClient:
                 {"role": "user", "content": user},
             ],
             "temperature": 0.4,
-            "max_tokens": 300,
+            "max_tokens": LLM_MAX_TOKENS,
         }
         resp = requests.post(f"{self.base_url}/chat/completions", headers=headers,
                              json=payload, timeout=self.timeout)
@@ -214,6 +248,9 @@ def _validate(parsed: dict, finding) -> Recommendation:
         evidence=list(finding.evidence),
         source=est.source,
         kind=getattr(finding, "kind", "detected"),
+        detector=getattr(finding, "detector", "rule"),
+        anomaly_score=getattr(finding, "anomaly_score", None),
+        load_key=getattr(finding, "load_key", ""),
     )
 
 
@@ -282,6 +319,9 @@ def template_narrate(finding) -> Recommendation:
         source=est.source,
         narrated_by="template",
         kind=getattr(finding, "kind", "detected"),
+        detector=getattr(finding, "detector", "rule"),
+        anomaly_score=getattr(finding, "anomaly_score", None),
+        load_key=getattr(finding, "load_key", ""),
     )
 
 

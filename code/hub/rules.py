@@ -11,6 +11,7 @@ uncomfortable, which is the difference between an assistant and a thermostat.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -86,6 +87,12 @@ class Finding:
     evidence: List[str] = field(default_factory=list)
     suggested_actions: List[str] = field(default_factory=list)
     estimate: Optional[WasteEstimate] = None
+    # "rule" for R1-R6 (a named threshold fired) or "learned" (the edge
+    # classifier scored this anomalous). The UI must show the difference: it is
+    # what preserves the "every recommendation traces to a named rule" claim
+    # while still making the AI's contribution visible and separable.
+    detector: str = "rule"
+    anomaly_score: Optional[float] = None
 
     # "detected"    waste that has already happened and been charged for
     # "anticipated" waste that has NOT happened yet and can still be avoided
@@ -506,6 +513,80 @@ DETECTORS = [
 ]
 
 
+def _biggest_live_load(snapshot: Dict) -> tuple:
+    """(room, load_name, load_dict) of the largest load currently drawing power.
+
+    The learned finding needs a load to attach an auditable cost to. The heaviest
+    running load is the defensible choice: it is what the anomaly is mostly made
+    of, and it is the one worth acting on.
+    """
+    best = (None, None, None)
+    best_w = -1.0
+    for key, load in (snapshot.get("loads") or {}).items():
+        if not isinstance(load, dict) or load.get("state") != "on":
+            continue
+        try:
+            w = float(load.get("watts") or 0.0)
+        except (TypeError, ValueError):
+            w = 0.0
+        if w > best_w:
+            parts = str(key).split("/")
+            best_w = w
+            best = (parts[0] if len(parts) > 1 else "living", parts[-1], load)
+    return best
+
+
+def _make_learned_finding(snapshot: Dict, now_dt: datetime,
+                          s: float, top: str) -> Optional[Finding]:
+    """Build a Finding from an anomaly score.
+
+    Every number here stays deterministic: the dollar figure comes from the same
+    `_attach` path as R1-R6, driven by the load's real `on_since`. The model
+    contributes the DETECTION, never the arithmetic. If we cannot establish how
+    long the load has been running, seconds_wasted stays 0 and the finding
+    honestly carries no cost claim rather than inventing a duration.
+    """
+    import anomaly
+
+    room, name, load = _biggest_live_load(snapshot)
+    if name is None:
+        return None
+
+    now = snapshot.get("now", 0) or 0
+    on_since = load.get("on_since")
+    # `is not None`, not truthiness: on_since == 0 is a legitimate epoch-relative
+    # timestamp in tests and fixtures, and treating it as "missing" reported a
+    # known duration as unknown.
+    if on_since is not None:
+        seconds = max(0.0, float(now) - float(on_since))
+        duration_line = f"Running for {seconds/60:.0f} minutes"
+    else:
+        seconds = 0.0
+        duration_line = "Duration unknown — no cost is claimed for this finding"
+
+    return _attach(Finding(
+        id=f"learned-{room}-{name}",
+        rule_name="learned_anomaly",
+        severity="serious",
+        room=room,
+        load_key=f"{room}/{name}",
+        seconds_wasted=seconds,
+        headline=f"Unusual pattern for this home — {name} running at "
+                 f"{now_dt.strftime('%H:%M')}",
+        evidence=[
+            f"Learned detector: this pattern scores {s:.2f} anomalous for this home",
+            f"Strongest signal: {anomaly.explain(top)}",
+            f"Model: {anomaly.model_provenance()}",
+            duration_line,
+            "NOTE: a learned score, not a measurement — no fixed threshold "
+            "expresses this, and the training data is simulated",
+        ],
+        suggested_actions=[f"Turn off the {name}", "Check whether this is intentional"],
+        detector="learned",
+        anomaly_score=round(s, 3),
+    ), now_dt)
+
+
 def evaluate_all(snapshot: Dict, now_dt: Optional[datetime] = None):
     """Run every rule. Returns (offered, suppressed), each sorted by cost.
 
@@ -513,6 +594,11 @@ def evaluate_all(snapshot: Dict, now_dt: Optional[datetime] = None):
     fully costed — the system knows exactly what that saving would have been and
     declines to take it. Showing them is the difference between a system that
     looks like it found two things and one that visibly considered four.
+
+    The learned tier-1 finding goes through the SAME guardrail as R1-R8, so it
+    can be suppressed and shown as declined like any other. A learned detector
+    that could route around the safety gate would be the one thing that breaks
+    the mandate table.
     """
     if now_dt is None:
         now_dt = datetime.fromtimestamp(snapshot.get("now", 0))
@@ -523,6 +609,25 @@ def evaluate_all(snapshot: Dict, now_dt: Optional[datetime] = None):
             findings.extend(detector(snapshot, now_dt))
         except Exception as exc:  # never let one bad rule kill the loop
             print(f"[rules] {detector.__name__} failed: {exc}")
+
+    # Tier-1 edge classifier. Runs AFTER R1-R6 so a learned finding can never
+    # displace a deterministic one, and BEFORE R7 so the comfort guardrail
+    # governs it exactly as it governs every rule — a learned detector must not
+    # be able to route around the safety gate.
+    if os.environ.get("AI_ANOMALY", "0") == "1":
+        try:
+            import anomaly
+            feats = anomaly.featurize(snapshot, now_dt)
+            s, top = anomaly.score(feats)
+            if s >= anomaly.ANOMALY_THRESHOLD:
+                learned = _make_learned_finding(snapshot, now_dt, s, top)
+                # Do not duplicate a rule that already fired on the same load:
+                # two cards for one lamp reads as a bug, not as two detectors.
+                if learned is not None and not any(
+                        f.load_key == learned.load_key for f in findings):
+                    findings.append(learned)
+        except Exception as exc:
+            print(f"[rules] anomaly detector unavailable: {exc}")
 
     findings = r7_comfort_guardrail(findings, snapshot)
     findings.sort(key=lambda f: f.usd, reverse=True)

@@ -471,7 +471,40 @@ void renderPixels() {
  * three-token form still works. */
 void handleCommand(char *line) {
   char *verb = strtok(line, " \t");
-  if (verb == NULL || strcmp(verb, "CMD") != 0) return;
+  if (verb == NULL) return;
+
+#if BUTTON_ACTUATION
+  /* `SIMBTN <a|b>` — a simulated press, for the autonomous demo script.
+   *
+   * Deliberately bumps the SAME counter a physical press bumps, rather than
+   * shortcutting to the Kasa call. Everything downstream is then identical:
+   * the counter rides out in the next telemetry line, uno_q_publisher.py sees
+   * the delta, switches the real device, and writes the confirmation back which
+   * lights the LED. So the autopilot exercises the real path end to end and can
+   * genuinely fail if that path is broken — a script that called Kasa directly
+   * would still "pass" with the button wiring dead, which would make it useless
+   * as a rehearsal tool.
+   *
+   * The only thing it cannot reproduce is the physical switch contact and the
+   * two-poll debounce above it. */
+  if (strcmp(verb, "SIMBTN") == 0) {
+    char *which = strtok(NULL, " \t");
+    if (which == NULL) return;
+    unsigned long now = millis();
+    if (which[0] == 'a' || which[0] == 'A') {
+      btnLights++; pendLights = now ? now : 1;
+      lastActionFailed = false; chirp(660);
+      Serial.println(F("{\"ack\":\"simbtn\",\"button\":\"a\",\"load\":\"lights\"}"));
+    } else if (which[0] == 'b' || which[0] == 'B') {
+      btnAc++;     pendAc     = now ? now : 1;
+      lastActionFailed = false; chirp(660);
+      Serial.println(F("{\"ack\":\"simbtn\",\"button\":\"b\",\"load\":\"ac\"}"));
+    }
+    return;
+  }
+#endif
+
+  if (strcmp(verb, "CMD") != 0) return;
   char *load  = strtok(NULL, " \t");
   char *state = strtok(NULL, " \t");
   if (load == NULL || state == NULL) return;

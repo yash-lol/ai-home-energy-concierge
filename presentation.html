@@ -20,7 +20,7 @@
      1:25 13  DEMO VIDEO (45 s) + the refusal          75 s   <- the whole point
      2:40  9  The guardrail gates the actuator         45 s
      3:25 10  Measured, not claimed                    45 s
-     4:10 15  Summary — four devices, one insight      35 s
+     4:10 15  Summary — three devices, one insight     35 s
      4:45 16  Team + questions                         15 s
 
   BACKUP, only if asked:
@@ -242,6 +242,132 @@
   .ov-item .n { font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .ov-item .t { font-size: 13px; margin-top: 3px; line-height: 1.35; }
 
+  /* ---------- icon badges — circular, colored fill, white-stroke glyph ---------- */
+  .badge {
+    width: 40px; height: 40px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.08) inset;
+  }
+  .badge svg { width: 22px; height: 22px; stroke: #fff; stroke-width: 1.7; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .badge.sm  { width: 28px; height: 28px; }
+  .badge.sm svg { width: 15px; height: 15px; }
+  .badge.xs  { width: 20px; height: 20px; }
+  .badge.xs svg { width: 11px; height: 11px; stroke-width: 2; }
+  .badge.s1  { background: var(--s1); }
+  .badge.s2  { background: var(--s2); }
+  .badge.s3  { background: var(--s3); }
+  .badge.good{ background: var(--good); }
+  .badge.mut {
+    background: transparent; box-shadow: 0 0 0 1.5px var(--muted) inset;
+  }
+  .badge.mut svg { stroke: var(--muted); }
+
+  /* ---------- architecture diagram (slide 4) ----------
+     Connectors are laid out BY flex/grid, not free-floated over it — a line + label
+     + arrowhead sits in its own row/column, so alignment never depends on guessing
+     another box's rendered height. */
+  .diagram { display: flex; flex-direction: column; gap: 0; width: 100%; }
+  .dtop {
+    display: grid; align-items: center;
+    grid-template-columns: 1.35fr 0.55fr 1.5fr;
+    grid-template-rows: auto auto auto auto;
+    column-gap: 4px; row-gap: 20px;
+  }
+  .dblock {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 11px;
+    padding: 16px 18px; display: flex; gap: 13px; align-items: flex-start;
+  }
+  .dblock.emph { border-color: var(--s1); box-shadow: 0 0 0 1px var(--s1) inset; }
+  .dblock .dtext { min-width: 0; }
+  .dblock h4 { font-size: 13.5px; font-weight: 600; line-height: 1.25; }
+  .dblock .dsub { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+  .dblock .drole { font-size: 11.5px; color: var(--secondary); margin-top: 5px; line-height: 1.4; }
+  .dblock .drole b { color: var(--primary); font-weight: 600; }
+
+  /* a connector: vertical spacer with a centered line, label chip, and arrowhead */
+  .dwire { display: flex; flex-direction: column; align-items: center; padding: 7px 0; flex: none; }
+  .dwire.horiz { flex-direction: row; align-items: center; justify-content: center; padding: 0 10px; }
+  .dwire .line { background: var(--border); flex: none; }
+  .dwire.vert .line { width: 1px; height: 16px; }
+  .dwire.horiz .line { height: 1px; width: 22px; }
+  .dwire .lbl {
+    font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em;
+    background: var(--page); padding: 2px 7px; border: 1px solid var(--border); border-radius: 20px;
+    white-space: nowrap; margin: 2px 0;
+  }
+  .dwire.horiz .lbl { margin: 0 2px; }
+  .dwire .arrow { width: 0; height: 0; flex: none; }
+  .dwire.vert .arrow { border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--muted); }
+  .dwire.vert.up .arrow { border-top: none; border-bottom: 5px solid var(--muted); order: -1; }
+  .dwire.horiz .arrow { border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--muted); }
+  .dwire.bi .arrow.rev { border-left: none; border-right: 5px solid var(--muted); order: -1; }
+
+  .dsub-row { display: flex; gap: 8px; margin-top: 8px; }
+  .dsub-box {
+    flex: 1 1 0; background: rgba(0,0,0,.28); border: 1px solid var(--border);
+    border-radius: 7px; padding: 6px 8px; font-size: 10px; color: var(--secondary); line-height: 1.35;
+  }
+  .dsub-box b { color: var(--primary); font-weight: 600; display: block; font-size: 10.5px; margin-bottom: 1px; }
+
+  /* ---------- upgraded flow strip (slide 3) ---------- */
+  .dflow { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 12.5px; }
+  .dflow .step {
+    display: flex; align-items: center; gap: 7px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px 7px 8px;
+    color: var(--secondary); background: var(--surface);
+  }
+  .dflow .step.act { border-color: var(--s1); color: var(--s1); font-weight: 600; }
+  .dflow .step.ok  { border-color: var(--good); color: var(--good); font-weight: 600; }
+  .dflow .chev { color: var(--muted); flex: none; }
+  .dflow .chev svg { width: 13px; height: 13px; stroke: var(--muted); stroke-width: 2; fill: none; }
+
+  /* ---------- audit receipt panel (slide 8) ---------- */
+  .receipt {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden;
+  }
+  .receipt .rhead {
+    display: flex; align-items: center; gap: 9px; padding: 12px 15px;
+    border-bottom: 1px solid var(--border); background: rgba(255,255,255,.02);
+  }
+  .receipt .rhead span { font-size: 12.5px; font-weight: 600; color: var(--primary); }
+  .receipt .rbody { padding: 13px 15px 14px; }
+  .receipt .rrow {
+    display: flex; justify-content: space-between; gap: 14px;
+    padding: 5px 0; font-size: 11.5px; border-bottom: 1px dashed rgba(255,255,255,.08);
+  }
+  .receipt .rrow:last-of-type { border-bottom: none; }
+  .receipt .rrow .rk { color: var(--muted); flex: none; }
+  .receipt .rrow .rv {
+    color: var(--secondary); text-align: right; font-family: var(--mono); font-size: 11px;
+  }
+  .receipt .rformula {
+    margin-top: 10px; background: rgba(0,0,0,.30); border-radius: 7px;
+    padding: 9px 11px; font-family: var(--mono); font-size: 10.5px; line-height: 1.6;
+    color: var(--s1); white-space: pre-wrap; word-break: break-word;
+  }
+  .receipt .rnote { margin-top: 10px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .receipt .rnote b { color: var(--secondary); }
+  .receipt ul.revidence { margin-top: 4px; }
+  .receipt ul.revidence li { font-size: 11px; padding-left: 14px; }
+  .receipt ul.revidence li::before { width: 4px; height: 4px; background: var(--s1); }
+
+  /* ---------- visual file tree (slide 12) ---------- */
+  .ftree { font-size: 12px; }
+  .ftree ul { list-style: none; margin: 0; padding-left: 19px; border-left: 1px solid var(--grid); }
+  .ftree > ul { padding-left: 0; border-left: none; }
+  .ftree li { position: relative; padding: 3px 0 3px 20px; color: var(--secondary); line-height: 1.3; }
+  .ftree li::before {
+    content: ""; position: absolute; left: 0; top: 13px; width: 13px; height: 1px; background: var(--grid);
+  }
+  .ftree li.dir > span { color: var(--primary); font-weight: 600; }
+  .ftree .ic { display: inline-flex; margin-right: 6px; vertical-align: -3px; }
+  .ftree .ic svg { width: 13px; height: 13px; stroke: var(--muted); stroke-width: 1.6; fill: none; }
+  .ftree li.dir .ic svg { stroke: var(--s2); }
+  .ftree .fname { font-family: var(--mono); }
+  .ftree .fdesc { color: var(--muted); font-size: 11px; margin-left: 8px; }
+  .ftree .fdesc .em { color: var(--s1); font-weight: 600; }
+
   @media print {
     body { overflow: visible; background: #fff; }
     .slide { display: flex !important; position: relative; height: 190mm; page-break-after: always; border-bottom: none; }
@@ -266,7 +392,7 @@
       <span class="pill">Qualcomm San Diego</span>
     </div>
     <div class="meta" style="margin-top:16px">
-      <span>Snapdragon X Elite · Galaxy S25 · Arduino UNO Q · Cloud AI 100</span>
+      <span>Snapdragon X Elite · Galaxy S25 · Arduino UNO Q</span>
     </div>
   </section>
 
@@ -305,15 +431,46 @@
     <h2>Sense → reason → recommend → approve → <span style="color:var(--s1)">act</span> → confirm</h2>
     <p class="sub">The loop closes on real hardware, but a human authorises every physical action.</p>
     <div class="body">
-      <div class="flow">
-        <span>UNO Q senses</span><i>→</i>
-        <span>hub fuses context</span><i>→</i>
-        <span>8 rules fire</span><i>→</i>
-        <span>Python computes $</span><i>→</i>
-        <span>LLM explains</span><i>→</i>
-        <span class="act">user approves</span><i>→</i>
-        <span class="act">the real lamp goes dark</span><i>→</i>
-        <span class="ok">saving realized</span>
+      <div class="dflow">
+        <div class="step">
+          <span class="badge xs s2"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></span>
+          UNO Q senses
+        </div>
+        <div class="chev"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+        <div class="step">
+          <span class="badge xs s1"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="6" rx="1.2"/><rect x="4" y="10" width="16" height="6" rx="1.2"/><rect x="4" y="17" width="16" height="4" rx="1.2"/></svg></span>
+          hub fuses context
+        </div>
+        <div class="chev"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+        <div class="step">
+          <span class="badge xs s1"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+          7 rules fire
+        </div>
+        <div class="chev"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+        <div class="step">
+          <span class="badge xs s1"><svg viewBox="0 0 24 24"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+          Python computes $
+        </div>
+        <div class="chev"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+        <div class="step">
+          <span class="badge xs s1"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+          LLM explains
+        </div>
+        <div class="chev"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+        <div class="step act">
+          <span class="badge xs s3"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M10 19h4"/></svg></span>
+          user approves
+        </div>
+        <div class="chev"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+        <div class="step act">
+          <span class="badge xs s2"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a6 6 0 0 0-4 10.5c.6.6.9 1.2.9 2h6.2c0-.8.3-1.4.9-2A6 6 0 0 0 12 2z"/></svg></span>
+          the real lamp goes dark
+        </div>
+        <div class="chev"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+        <div class="step ok">
+          <span class="badge xs good"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+          saving realized
+        </div>
       </div>
       <div class="cols c3" style="margin-top:6px">
         <div class="card">
@@ -345,37 +502,81 @@
   <!-- 4 ─────────────────────────────────────────── -->
   <section class="slide">
     <div class="kicker">Architecture</div>
-    <h2>Four tiers — and where each piece of intelligence lives is a decision</h2>
+    <h2>Three tiers — and where each piece of intelligence lives is a decision</h2>
     <div class="body">
       <div class="split wide-left">
-<pre>
-+------------------------------------+
-|  Arduino UNO Q                     |
-|  +--------------+ +--------------+ |
-|  | STM32U585    | | Dragonwing   | |  MQTT over Wi-Fi
-|  | Cortex-M33   | | QRB2210      | |----------------+
-|  | (Zephyr)     |>| Debian/Python| |                |
-|  | Modulino     |<| MQTT client  | |&lt;--- commands   |
-|  | <span class="em">Qwiic / I2C</span>  | | edge filter  | |                |
-|  +--------------+ +------+-------+ |                v
-+------------------------------|-----+   +---------------------------+
-                  |            v          | Copilot+ PC               |
-        <span class="em">physical action</span>  <span class="em">Kasa bulb/plug</span>   | Snapdragon X Elite        |
-                  |     <span class="em">(reports real W)</span> | <span class="em">45 TOPS NPU</span> ORCHESTRATOR |
-+-----------------------------+          |                           |
-|  Galaxy S25                 |          |  mosquitto broker         |
-|  Snapdragon 8 Elite         |--------->|  FastAPI + WebSocket      |
-|  PWA: presence, geofence,   |          |  rules engine (determ.)   |
-|  notifications, <span class="em">APPROVE</span>     |          |  energy model (determ.)   |
-+-----------------------------+          |  GenieX LLM -- narration  |
-                                         |  <span class="em">R7 gate -- blocks unsafe</span>  |
-       +-----------------------+         |       physical action     |
-       | Qualcomm Cloud AI 100 |&lt;--------|  deep report (off-path)   |
-       | weekly deep report    |         +------------+--------------+
-       +-----------------------+                      | WebSocket
-                                                      v
-                                            Dashboard (browser)
-</pre>
+        <div class="diagram">
+          <div class="dtop">
+            <!-- UNO Q -->
+            <div class="dblock" style="grid-column:1;grid-row:1">
+              <div class="badge s2">
+                <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg>
+              </div>
+              <div class="dtext">
+                <h4>Arduino UNO Q</h4>
+                <div class="dsub">STM32U585 (Zephyr) + Dragonwing QRB2210</div>
+                <div class="drole">Modulino sensing over Qwiic/I2C · edge filtering cuts broker traffic <b>89%</b><br><b>Tier-1 AI:</b> a learned anomaly detector flags waste no fixed rule can — pure-CPU, microseconds</div>
+                <div class="dsub-row">
+                  <div class="dsub-box">
+                    <b>⚡ Kasa bulb / plug</b>
+                    the physical action — reports real measured watts back
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="dwire horiz bi" style="grid-column:2;grid-row:1">
+              <div class="arrow rev"></div><div class="line"></div><div class="lbl">MQTT · Wi-Fi</div><div class="line"></div><div class="arrow"></div>
+            </div>
+
+            <!-- Galaxy S25 -->
+            <div class="dblock" style="grid-column:1;grid-row:2">
+              <div class="badge s3">
+                <svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M10 19h4"/></svg>
+              </div>
+              <div class="dtext">
+                <h4>Galaxy S25</h4>
+                <div class="dsub">Snapdragon 8 Elite</div>
+                <div class="drole">PWA: presence, geofence, notifications, <b>APPROVE</b></div>
+              </div>
+            </div>
+            <div class="dwire horiz" style="grid-column:2;grid-row:2">
+              <div class="line"></div><div class="lbl">HTTP</div><div class="line"></div><div class="arrow"></div>
+            </div>
+
+            <!-- Hub -->
+            <div class="dblock emph" style="grid-column:3;grid-row:1 / span 2">
+              <div class="badge s1">
+                <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="6" rx="1.2"/><rect x="4" y="10" width="16" height="6" rx="1.2"/><rect x="4" y="17" width="16" height="4" rx="1.2"/><path d="M7 6h.01M7 13h.01"/></svg>
+              </div>
+              <div class="dtext">
+                <h4>Copilot+ PC — Snapdragon X Elite</h4>
+                <div class="dsub">45 TOPS Hexagon NPU · ORCHESTRATOR</div>
+                <div class="drole">
+                  mosquitto broker · FastAPI + WebSocket<br>
+                  rules engine (determ.) · energy model (determ.)<br>
+                  <b>Tier-2 AI:</b> GenieX LLM ranks findings into a plan + on-device Q&A (NPU)<br>
+                  <b>weekly deep report</b> — larger local model, off the critical path<br>
+                  <b>R7 gate — blocks unsafe physical action</b>
+                </div>
+              </div>
+            </div>
+
+            <div class="dwire vert" style="grid-column:3;grid-row:3">
+              <div class="line" style="height:14px"></div><div class="lbl">WebSocket</div><div class="arrow"></div>
+            </div>
+
+            <!-- Dashboard -->
+            <div class="dblock" style="grid-column:3;grid-row:4">
+              <div class="badge mut">
+                <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/></svg>
+              </div>
+              <div class="dtext">
+                <h4>Dashboard</h4>
+                <div class="drole">live findings, savings, Apply/Approve — any browser</div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div>
           <table>
             <thead><tr><th>Tier</th><th>Intelligence</th><th>Why here</th></tr></thead>
@@ -384,14 +585,11 @@
                   <td>1 Hz sampling;<br><strong>actuator drive</strong></td>
                   <td>hard real time, no OS jitter</td></tr>
               <tr><td class="k">Dragonwing<br><span style="color:var(--muted);font-size:12px">QRB2210, Debian</span></td>
-                  <td>smoothing, occupancy FSM, change-triggered publish</td>
+                  <td>smoothing, occupancy FSM, change-triggered publish,<br><strong>learned anomaly detector</strong></td>
                   <td>cuts broker traffic <strong>89%</strong>; raw data stays local</td></tr>
               <tr class="hl"><td class="k">X Elite<br><span style="color:var(--muted);font-size:12px">45 TOPS NPU</span></td>
-                  <td>rules, energy model, GenieX LLM, safety gate</td>
-                  <td>sub-2 s narration; occupancy never leaves the house</td></tr>
-              <tr><td class="k">Cloud AI 100</td>
-                  <td>larger model, weekly patterns</td>
-                  <td>seconds are fine off the critical path</td></tr>
+                  <td>rules, energy model, <strong>GenieX planner + Q&A</strong>, safety gate,<br>weekly deep report (off-path)</td>
+                  <td>sub-2 s narration; occupancy never leaves the house; no separate device to depend on</td></tr>
             </tbody>
           </table>
         </div>
@@ -502,47 +700,50 @@
   <!-- 8 ─────────────────────────────────────────── -->
   <section class="slide">
     <div class="kicker">Differentiator 1 of 3</div>
-    <h2>Auditable AI — the model narrates, Python computes</h2>
-    <p class="sub">The usual failure mode of an "AI saves you money" demo is a judge asking
-       <em>"where did that number come from?"</em> and the answer being "the model said so."</p>
+    <h2>The AI genuinely decides — and Python still owns every number</h2>
+    <p class="sub">Most "AI saves you money" demos collapse on one judge question — <em>"where did that number come from?"</em> Ours has three AI jobs, and an answer.</p>
     <div class="body">
       <div class="split">
         <div style="display:flex;flex-direction:column;gap:14px">
           <div class="card">
-            <h3>The architectural rule</h3>
-            <p>The LLM receives <strong>pre-computed</strong> values and may only phrase them. After
-               every call, each numeric field is <strong>overwritten from the deterministic
-               source</strong>. If the prose contradicts the computed figure, the figure wins.</p>
+            <h3><i class="dot" style="background:var(--s2)"></i>Tier 1 — a learned detector catches what no rule can</h3>
+            <p>A/C at 3 a.m., 24&nbsp;°C, room occupied: no fixed threshold fires, yet it is real waste.
+               A tiny model trained on the home's own rhythm scores it anomalous — in microseconds,
+               on the UNO Q's CPU.</p>
           </div>
-          <div class="callout">
-            Every estimate carries a <code>formula</code> string that the UI renders verbatim, so any
-            number on screen can be recomputed by hand with a calculator.
+          <div class="card">
+            <h3><i class="dot" style="background:var(--s1)"></i>Tier 2 — the LLM decides the plan, not the prose</h3>
+            <p>Given every finding at once, the on-device model <strong>ranks them and explains the
+               order</strong> — defer the legitimate dryer, kill the empty-room A/C now. Real reasoning
+               across findings, not rewording one.</p>
           </div>
-          <ul>
-            <li>All arithmetic lives in one 200-line module with no I/O and no LLM</li>
-            <li>Each wattage figure carries its own <code>source</code> (US DOE, ENERGY STAR)</li>
-            <li>Each finding carries the <strong>evidence</strong> that triggered its rule</li>
-            <li>Heuristics are <strong>labelled as heuristics</strong> in the UI, not hidden</li>
-          </ul>
+          <div class="callout good">
+            <strong>Python still computes every kWh, dollar and kg</strong> — and a provenance check
+            matches every number the AI emits against that deterministic source. Anything it can't
+            verify is flagged, never shown as fact.
+          </div>
         </div>
         <div>
-<pre>
-<span class="em">Audit this number</span>
-
-Rule  away_with_hvac_on   room  living
-
-1100 W x 7200 s = 2.2000 kWh;
+<div class="receipt">
+  <div class="rhead">
+    <span class="badge xs s1"><svg viewBox="0 0 24 24"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+    <span>Audit this number</span>
+  </div>
+  <div class="rbody">
+    <div class="rrow"><span class="rk">Rule</span><span class="rv">away_with_hvac_on</span></div>
+    <div class="rrow"><span class="rk">Room</span><span class="rv">living</span></div>
+    <div class="rformula">1100 W x 7200 s = 2.2000 kWh;
 2.2000 kWh x $0.58/kWh (on_peak) = $1.276;
-2.2000 kWh x 0.25 kg/kWh = 0.5500 kg CO2
-
-Evidence that triggered it:
- - Phone reports presence AWAY, 2400 m from home
- - AC reported ON at 1100 W
- - Running unattended for 120 minutes
-
-Power figure source:
- Energy Star typical 10k BTU unit
-</pre>
+2.2000 kWh x 0.25 kg/kWh = 0.5500 kg CO2</div>
+    <div class="rnote"><b>Evidence that triggered it:</b></div>
+    <ul class="revidence">
+      <li>Phone reports presence AWAY, 2400 m from home</li>
+      <li>AC reported ON at 1100 W</li>
+      <li>Running unattended for 120 minutes</li>
+    </ul>
+    <div class="rnote"><b>Power figure source:</b> Energy Star typical 10k BTU unit</div>
+  </div>
+</div>
           <div class="callout good" style="margin-top:13px">
             Aligned with QUAD's own stated philosophy — <em>"honest, not magic… no fabricated
             results."</em>
@@ -621,10 +822,14 @@ Power figure source:
             <thead><tr><th>Metric</th><th>p50</th><th>p95</th><th></th></tr></thead>
             <tbody>
               <tr><td class="k">Energy-model estimate</td><td class="num">0.004</td><td class="num">0.007</td><td>ms</td></tr>
-              <tr><td class="k">Rules engine (7 rules)</td><td class="num">0.027</td><td class="num">0.046</td><td>ms</td></tr>
+              <tr><td class="k">Rules engine (7 rules)</td><td class="num">0.014</td><td class="num">0.016</td><td>ms</td></tr>
+              <tr class="hl"><td class="k">Edge anomaly model — <b>on the UNO Q A53</b></td><td class="num">30.6</td><td class="num">32.4</td><td>&#181;s</td></tr>
               <tr><td class="k">Narration — deterministic</td><td class="num">0.002</td><td class="num">0.005</td><td>ms</td></tr>
-              <tr class="hl"><td class="k">Narration — GenieX on the NPU</td><td class="num">3110</td><td class="num">3273</td><td>ms</td></tr>
+              <tr class="hl"><td class="k">Narration — GenieX on the NPU</td><td class="num">3328</td><td class="num">3481</td><td>ms</td></tr>
               <tr><td class="k">Snapshot → recommendations</td><td class="num">0.017</td><td class="num">0.019</td><td>ms</td></tr>
+              <tr class="hl"><td class="k">Plan synthesis — NPU, per <i>change</i></td><td class="num">11.5</td><td class="num">11.7</td><td>s</td></tr>
+              <tr><td class="k">Q&amp;A round-trip — NPU, streamed</td><td class="num">~3.4</td><td class="num">—</td><td>s</td></tr>
+              <tr><td class="k">Provenance check per response</td><td class="num">110.8</td><td class="num">138.7</td><td>&#181;s</td></tr>
               <tr class="hl"><td class="k">Broker messages avoided</td><td class="num">88.7</td><td class="num">—</td><td>%</td></tr>
               <tr><td class="k">Peak RSS</td><td class="num">34.0</td><td class="num">—</td><td>MB</td></tr>
             </tbody>
@@ -632,9 +837,11 @@ Power figure source:
         </div>
         <div style="display:flex;flex-direction:column;gap:12px">
           <div class="callout">
-            <strong>The reasoning tier costs microseconds.</strong> All the latency that matters is
-            LLM inference — which is precisely why it is the only part we accelerate on the NPU,
-            and why the deterministic fallback is instant when the model is unavailable.
+            <strong>Three tiers, &#181;s &rarr; ms &rarr; s.</strong> Fixed rules and the learned edge
+            detector run in microseconds on plain CPU. The LLM &mdash; the only piece worth
+            accelerating &mdash; runs on the NPU, and only when the finding set changes, so its
+            ~3&nbsp;s cost is paid once per change, not per cycle. Each tier is placed against a
+            latency and power budget, and measured.
           </div>
           <div class="callout good">
             <strong>Edge filtering removes ~89% of broker traffic.</strong> The UNO Q samples at
@@ -667,7 +874,7 @@ Power figure source:
             <tr><td class="k">Transport</td><td>MQTT broker</td><td>REST injection endpoints</td></tr>
             <tr><td class="k">UNO Q link</td><td>Wi-Fi from Dragonwing</td><td><code>adb reverse</code> over USB-C — no Wi-Fi at all</td></tr>
             <tr class="hl"><td class="k">Narration</td><td>GenieX on the NPU</td><td>deterministic template — instant</td></tr>
-            <tr><td class="k">Cloud report</td><td>Cloud AI 100</td><td>deterministic Python report</td></tr>
+            <tr><td class="k">Deep report</td><td>larger local model, off-path</td><td>deterministic Python report</td></tr>
             <tr><td class="k">Actuator</td><td>Kasa bulb / plug on the LAN</td><td>reports <code>simulated</code> — never fakes success</td></tr>
             <tr><td class="k">Presence</td><td>phone geofence</td><td>manual HOME / AWAY toggle</td></tr>
           </tbody>
@@ -678,7 +885,7 @@ Power figure source:
             <div class="stat b"><div class="label">Quickstart</div><div class="value">3<span class="unit">cmds</span></div><div class="foot">no hardware needed to see the whole system work</div></div>
           </div>
           <div class="callout">
-            <strong>Nothing hard-fails.</strong> Kill the LLM, the cloud, the broker, the sensors or
+            <strong>Nothing hard-fails.</strong> Kill the LLM, the broker, the sensors or
             the smart plug and the system keeps producing correct recommendations — and says which path
             it used.
           </div>
@@ -722,26 +929,37 @@ Power figure source:
           </div>
         </div>
         <div>
-<pre>
-code/
-  hub/
-    energy_model.py   all arithmetic, zero I/O
-    rules.py          R1-R8, no LLM
-    llm.py            GenieX + deterministic fallback
-    server.py         MQTT, fusion, WS, <span class="em">/api/apply</span>
-    simulator.py      scripted 90 s demo
-    cloud_report.py   Cloud AI 100 + fallback
-    benchmark.py      latency / RSS / efficiency
-  dashboard/index.html   no build step
-  phone/index.html       no build step
-  arduino/
-    sketch/sketch.ino    <span class="em">Modulino</span> over Qwiic
-    uno_q_publisher.py   edge filter + <span class="em">Kasa actuation</span>
-    board.env            all LAN config, env-driven
-  smoke_test.py       <span class="em">38 checks</span>
-  requirements.txt    6 deps
-  LICENSE             MIT
-</pre>
+<div class="ftree">
+  <ul>
+    <li class="dir"><span class="ic"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><span>code/</span>
+      <ul>
+        <li class="dir"><span class="ic"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><span>hub/</span>
+          <ul>
+            <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">energy_model.py</span><span class="fdesc">all arithmetic, zero I/O</span></li>
+            <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">rules.py</span><span class="fdesc">R1-R7, no LLM</span></li>
+            <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">llm.py</span><span class="fdesc">GenieX + deterministic fallback</span></li>
+            <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">server.py</span><span class="fdesc">MQTT, fusion, WS, <span class="em">/api/apply</span></span></li>
+            <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">simulator.py</span><span class="fdesc">scripted 90 s demo</span></li>
+            <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">cloud_report.py</span><span class="fdesc">larger local model + fallback</span></li>
+            <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">benchmark.py</span><span class="fdesc">latency / RSS / efficiency</span></li>
+          </ul>
+        </li>
+        <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">dashboard/index.html</span><span class="fdesc">no build step</span></li>
+        <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">phone/index.html</span><span class="fdesc">no build step</span></li>
+        <li class="dir"><span class="ic"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><span>arduino/</span>
+          <ul>
+            <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">sketch/sketch.ino</span><span class="fdesc"><span class="em">Modulino</span> over Qwiic</span></li>
+            <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">uno_q_publisher.py</span><span class="fdesc">edge filter + <span class="em">Kasa actuation</span></span></li>
+            <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">board.env</span><span class="fdesc">all LAN config, env-driven</span></li>
+          </ul>
+        </li>
+        <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">smoke_test.py</span><span class="fdesc"><span class="em">32 checks</span></span></li>
+        <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">requirements.txt</span><span class="fdesc">6 deps</span></li>
+        <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span class="fname">LICENSE</span><span class="fdesc">MIT</span></li>
+      </ul>
+    </li>
+  </ul>
+</div>
           <div class="callout" style="margin-top:12px">
             Vanilla HTML/CSS/JS for both UIs — <strong>no npm, no framework, no CDN.</strong> Nothing
             to install, nothing to break on a blocked network.
@@ -845,19 +1063,20 @@ code/
   <!-- 15 ────────────────────────────────────────── -->
   <section class="slide">
     <div class="kicker">Summary</div>
-    <h2>Four devices producing one insight none of them could reach alone</h2>
+    <h2>Three devices producing one insight none of them could reach alone</h2>
     <div class="body">
       <div class="cols c2" style="flex:none">
         <div class="card">
-          <h3><i class="dot" style="background:var(--s1)"></i>1 · Placement of intelligence is the design</h3>
-          <p>Rules at the edge in microseconds. A small model on the NPU for private, low-latency
-             narration. A large model in the cloud for depth. Same problem, four tiers, each chosen
-             against a latency and privacy budget.</p>
+          <h3><i class="dot" style="background:var(--s1)"></i>1 · Three tiers of AI, each earning its place</h3>
+          <p>A learned detector at the edge (microseconds, CPU) catches waste no rule can. The LLM on
+             the NPU decides the plan. A larger local model does weekly depth off the critical path.
+             Each placed against a latency and privacy budget.</p>
         </div>
         <div class="card">
-          <h3><i class="dot" style="background:var(--s2)"></i>2 · Auditable AI</h3>
-          <p>The model narrates; Python computes. Every number on screen expands to the formula that
-             produced it. Most LLM demos ask you to trust the number — this one lets you check it.</p>
+          <h3><i class="dot" style="background:var(--s2)"></i>2 · The AI decides — and can't fake a number</h3>
+          <p>The AI ranks and reasons; Python computes every kWh and dollar; a provenance check verifies
+             the AI never slipped one in. Most LLM demos ask you to trust the number — this one lets you
+             check it, mechanically.</p>
         </div>
         <div class="card">
           <h3><i class="dot" style="background:var(--s3)"></i>3 · Context fusion unlocks it</h3>
@@ -877,8 +1096,8 @@ code/
         <div class="stat"><div class="label">Quickstart</div><div class="value">3<span class="unit">cmds</span></div></div>
       </div>
       <div class="callout good" style="margin-top:2px">
-        <strong>Everything shown has been executed and verified</strong> — the actuation loop, the
-        refusal, the measurements, and every fallback with its dependency killed.
+        <strong>Every number here has been run on real hardware</strong> — the actuation loop, the
+        refusal, the measured latencies, and every fallback with its dependency killed.
       </div>
     </div>
   </section>
@@ -932,7 +1151,7 @@ const titles = [
   "Title — AI Home Energy Concierge",
   "The problem",
   "What it does — the closed loop",
-  "Architecture — four tiers",
+  "Architecture — three tiers",
   "Output — the operator view",
   "Output — the loop closing",
   "Output — the phone",

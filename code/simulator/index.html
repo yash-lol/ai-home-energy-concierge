@@ -645,11 +645,45 @@
     p.push(s.user && s.user.presence);
     var rz = s.realized;
     p.push(rz && typeof rz === "object" ? rz.usd : rz);
+    // Without this, the dedup below drops a cue whose state is otherwise
+    // unchanged — the autopilot would post and nothing would move.
+    p.push(s.demo_cue && s.demo_cue.id);
     return p.join("|");
+  }
+
+  // ---------- autonomous-demo cue ----------
+  // tools/demo_autopilot.py drives the demo through the hub. Without this the
+  // hub's numbers would change while these switches sat still, which reads as a
+  // broken UI rather than a running demo. So a cue moves the REAL control here,
+  // through the same setter a human click uses, and says so in the wire log.
+  var lastCueId = 0;
+
+  function applyDemoCue(cue){
+    if(!cue || !cue.id || cue.id <= lastCueId) return;
+    lastCueId = cue.id;
+    var v = cue.value, label = "";
+    try{
+      if(cue.control === "presence"){ setPres(String(v)); label = "presence -> " + v; flash($("presHome").parentNode); }
+      else if(cue.control === "occupancy"){ setOcc(!!v); label = "occupancy -> " + (v ? "occupied" : "empty"); flash($("occOn").parentNode); }
+      else if(cue.control === "lux"){ setLux(+v); sendSensor(true); label = "lux -> " + v; flash($("lux")); }
+      else if(cue.control === "humidity"){ setHum(+v); sendSensor(true); label = "humidity -> " + v; flash($("hum")); }
+      else if(cue.control === "temp_c"){ label = "temp cue ignored — the Knob owns temp_c"; }
+      else { label = "unknown control " + cue.control; }
+    }catch(e){ label = "cue failed: " + e.message; }
+    log("AUTOPILOT " + label + (cue.note ? "  (" + cue.note + ")" : ""), "okc");
+  }
+
+  function flash(el){
+    if(!el || !el.style) return;
+    var prev = el.style.boxShadow;
+    el.style.transition = "box-shadow .18s";
+    el.style.boxShadow = "0 0 0 3px var(--sim)";
+    setTimeout(function(){ el.style.boxShadow = prev || ""; }, 900);
   }
 
   function renderState(s){
     if(!s || typeof s !== "object") return;
+    applyDemoCue(s.demo_cue);
 
     var sig = stateSig(s);
     if(sig === lastSig) return;    // nothing we draw has changed

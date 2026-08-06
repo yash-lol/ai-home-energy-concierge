@@ -92,7 +92,21 @@ KASA_DEFAULT_ALIASES = {
 }
 KASA_DISCOVER_S = float(os.environ.get("KASA_DISCOVER_S", "8"))
 KASA_SETTLE_S = float(os.environ.get("KASA_SETTLE_S", "0.4"))
-KASA_POLL_S = float(os.environ.get("KASA_POLL_S", "5"))   # metered-watts cadence
+# Metered-watts cadence — how often we ask a bound device what it is drawing.
+#
+# 30 s, not 5. Every poll opens a connection to the device, and a KL120 bulb
+# VISIBLY DIPS when it services one: at 5 s the bulb flickers about twelve
+# times a minute, which is glaring on camera and was reported as "my light
+# keeps flickering" after a demo run. Confirmed by stopping the publisher —
+# the flicker stopped with it.
+#
+# Costs nothing that matters: this poll only detects OUT-OF-BAND changes
+# (someone using the Kasa app or a wall switch). Every switch WE make —
+# Actuator.execute and ButtonWatch._act — reads the device back and
+# publishes immediately, so the dashboard still updates the instant the
+# demo does anything. Lower it only if you need fast detection of changes
+# made outside this system.
+KASA_POLL_S = float(os.environ.get("KASA_POLL_S", "30"))
 # TP-Link firmware serves ONE connection at a time, so a concurrent reader (the
 # Kasa phone app, another script) can make a write raise even though it landed.
 # Retry, and judge success by reading the device back — see KasaBank.switch().
@@ -170,6 +184,47 @@ def mcu_tcp_available(host: str = MCU_TCP_HOST, port: int = MCU_TCP_PORT,
 
 # How long to keep looking for the MCU before giving up and inventing data.
 MCU_WAIT_S = float(os.environ.get("MCU_WAIT_S", "30"))
+
+# --- TIER 1: edge anomaly scoring, on the board's own CPU -------------------
+# The QRB2210 is a quad Cortex-A53 with no NPU/DSP stack, so an LLM here is
+# physically wrong. A trained logistic regression is not: pure Python, stdlib
+# only, microseconds per sample. Flagged off by default.
+AI_ANOMALY = os.environ.get("AI_ANOMALY", "0") == "1"
+_ANOMALY = None
+
+
+def edge_anomaly_score(payload: Dict, loads_info: Dict):
+    """(score, top_feature) for this sample, or None if unavailable.
+
+    Deliberately best-effort: the scorer must never be able to interrupt
+    telemetry. Any failure disables it for the rest of the run and the publisher
+    carries on exactly as before.
+    """
+    global _ANOMALY
+    if _ANOMALY is None:
+        try:
+            sys.path.insert(0, os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hub"))
+            import anomaly as _a
+            _ANOMALY = _a
+            print(f"[edge-ai] {_a.model_provenance()}", flush=True)
+        except Exception as exc:
+            print(f"[edge-ai] unavailable, scoring disabled: {exc}", flush=True)
+            _ANOMALY = False
+    if _ANOMALY is False:
+        return None
+
+    try:
+        loads = {f"{ROOM}/{n}": {"state": i.get("state"), "watts": i.get("watts") or 0}
+                 for n, i in (loads_info or {}).items()}
+        snap = {"rooms": {ROOM: dict(payload)}, "loads": loads,
+                "user": {"presence": "home"}, "now": time.time()}
+        s, top = _ANOMALY.score(_ANOMALY.featurize(snap))
+        return round(s, 3), top
+    except Exception as exc:
+        print(f"[edge-ai] scoring failed, disabling: {exc}", flush=True)
+        _ANOMALY = False
+        return None
 
 
 def wait_for_mcu(timeout_s: float = MCU_WAIT_S) -> bool:
@@ -932,6 +987,9 @@ def main():
     parsed_n = dropped_n = 0
     last_loads: Dict[str, str] = {}
     last_kasa_poll = 0.0
+    # Most recent Kasa read-back, so the edge scorer can see what is actually
+    # drawing power. Sensors alone cannot tell an anomaly from a quiet evening.
+    last_kasa_info: Dict[str, Dict] = {}
 
     try:
         for line in source:
@@ -1013,6 +1071,13 @@ def main():
                 for pk in ("temp_src", "hum_src", "lux_src", "occ_src"):
                     if pk in raw:
                         payload[pk] = raw[pk]
+                # TIER 1: score this sample on the board's own A53 before it
+                # leaves. Pure-Python logistic regression, microseconds, no
+                # numpy — see hub/anomaly.py. Flagged off by default.
+                if AI_ANOMALY:
+                    sc = edge_anomaly_score(payload, last_kasa_info)
+                    if sc is not None:
+                        payload["anomaly_score"], payload["anomaly_top"] = sc
                 pub.sensors(payload)
                 last.update(present)
                 last_pub = now
@@ -1026,7 +1091,8 @@ def main():
             # they are genuinely drawing.
             if bank.devices and (now - last_kasa_poll) >= KASA_POLL_S:
                 last_kasa_poll = now
-                for name, info in bank.poll().items():
+                last_kasa_info = bank.poll()
+                for name, info in last_kasa_info.items():
                     state = info["state"]
                     watts = info.get("watts")
                     changed = last_loads.get(name) != state
