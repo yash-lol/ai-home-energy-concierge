@@ -33,3 +33,11 @@ demo.mp4
 # local run logs
 code/*.err
 code/arduino/pc.env
+
+# Recorded sessions: household sensor data, stays on the machine that made it.
+# The project claims occupancy data never leaves the house — that has to remain
+# true of the repo too. Force-add a curated sample with `git add -f` if you want
+# one committed as evidence.
+code/data/sessions/
+# Downloaded third-party corpora — re-fetch with tools/train_occupancy.py
+code/data/uci/

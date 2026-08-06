@@ -178,6 +178,26 @@
     border: 1px solid var(--border); color: var(--text-muted); margin-left: 6px;
   }
 
+  /* Label capture. An approval is a positive and a guardrail refusal is a hard
+     negative, but most cards are simply never touched — and "ignored" is a weak
+     signal. These two buttons turn that into a deliberate one. */
+  .fb { display: inline-flex; gap: 4px; margin-left: auto; }
+  .fb button {
+    font-size: 11px; line-height: 1; padding: 5px 8px; border-radius: 20px;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--text-muted); cursor: pointer; min-height: 26px;
+  }
+  .fb button:hover { color: var(--text-primary); border-color: var(--text-muted); }
+  .fb button.picked { border-color: var(--series-1); color: var(--series-1); }
+  .fb button:disabled { cursor: default; opacity: 0.9; }
+  /* The learned tier, always visibly labelled as such — it must never be
+     mistaken for a sensor reading. */
+  .shadow {
+    font-size: 10.5px; color: var(--text-muted); margin-top: 2px;
+  }
+  .shadow b { color: var(--text-secondary); font-weight: 600; }
+  .shadow .oos { color: var(--warning); }
+
   /* ---------- table view (the WCAG-clean twin) ---------- */
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--gridline); }
@@ -255,6 +275,11 @@
       <div class="label">Open findings</div>
       <div class="value" id="kpi-findings">0</div>
       <div class="delta" id="kpi-findings-sub">—</div>
+    </div>
+    <div class="tile">
+      <div class="label">Dataset collected</div>
+      <div class="value" id="kpi-rows">0</div>
+      <div class="delta" id="kpi-rows-sub">recording off</div>
     </div>
   </section>
 
@@ -370,17 +395,51 @@ function render() {
   const roomName = Object.keys(s.rooms ?? {})[0] ?? "—";
   if (room) {
     document.getElementById("kpi-occ").textContent = room.occupancy ? "Occupied" : "Empty";
-    document.getElementById("kpi-occ-sub").textContent =
-      `${roomName} · ${(room.temp_c ?? 0).toFixed(1)}°C · ${room.lux ?? 0} lux · user ${s.user?.presence ?? "?"}`;
+    document.getElementById("kpi-occ-sub").innerHTML =
+      `${esc(roomName)} · ${(room.temp_c ?? 0).toFixed(1)}°C · ${room.lux ?? 0} lux · user ${esc(s.user?.presence ?? "?")}`
+      + shadowLine(room, s.occupancy_model);
   }
   document.getElementById("kpi-findings").textContent = open.length;
   document.getElementById("kpi-findings-sub").textContent =
     open.length ? `top: ${open[0].rule_name.replace(/_/g, " ")}` : "nothing wasteful detected";
 
+  drawDataset(s.dataset);
+
   drawChart();
   drawPowerTable();
   drawStateTable();
   drawRecos(recos);
+}
+
+/* The learned occupancy estimate, shown NEXT TO the reported value rather than
+   instead of it. In shadow mode the model drives nothing, so putting the two
+   side by side is a live accuracy read-out — and it makes an out-of-domain
+   prediction visible at the moment it happens rather than in a log. */
+function shadowLine(room, model) {
+  if (!model?.enabled || room.occupancy_prob == null) return "";
+  const p = room.occupancy_prob;
+  const says = room.occupancy_pred ? "occupied" : "empty";
+  const agrees = room.occupancy_pred === !!room.occupancy;
+  const oos = room.occupancy_in_domain === false
+    ? ` <span class="oos" title="Inputs are outside the range the model was trained on">· extrapolating</span>`
+    : "";
+  return `<div class="shadow">model: <b>${says} ${(p * 100).toFixed(0)}%</b>`
+    + ` · ${agrees ? "agrees" : "disagrees"} · driver ${esc(room.occupancy_driver ?? "—")}${oos}</div>`;
+}
+
+function drawDataset(d) {
+  const val = document.getElementById("kpi-rows");
+  const sub = document.getElementById("kpi-rows-sub");
+  if (!d?.enabled) {
+    val.textContent = "—";
+    sub.textContent = "recording off";
+    return;
+  }
+  val.textContent = d.rows ?? 0;
+  // Labels are the scarce quantity, so show those rather than the row count
+  // alone — 4000 ticks and zero approvals is not a trainable dataset.
+  const labels = (d.approvals ?? 0) + (d.refusals ?? 0) + (d.feedback ?? 0);
+  sub.textContent = `${d.ticks ?? 0} ticks · ${labels} labels · ${d.minutes ?? 0} min`;
 }
 
 /* --- series split for the chart --- */
@@ -555,6 +614,10 @@ function drawRecos(recos) {
         <div class="chips">
           ${(r.actions ?? []).map(a => `<span class="chip">${esc(a)}</span>`).join("")}
           ${control}
+          <span class="fb">
+            <button data-fb="1" data-reco="${esc(r.id)}" title="Good call — records a positive label">👍</button>
+            <button data-fb="0" data-reco="${esc(r.id)}" title="Not useful — records a negative label">👎</button>
+          </span>
         </div>
         <div class="refused" id="refused-${esc(r.id)}" style="display:none"></div>
         <details class="audit">
@@ -574,6 +637,36 @@ function drawRecos(recos) {
   el.querySelectorAll(".apply").forEach(btn => {
     btn.onclick = () => applyReco(btn.dataset.reco, btn);
   });
+  el.querySelectorAll(".fb button").forEach(btn => {
+    // Re-mark anything already voted on this session. drawRecos() rebuilds the
+    // list on every state push, so without this the tick would vanish a second
+    // after it was clicked and the button would look broken.
+    if (FEEDBACK.get(btn.dataset.reco) === btn.dataset.fb) btn.classList.add("picked");
+    btn.onclick = () => sendFeedback(btn);
+  });
+}
+
+/* Records a deliberate label. Fire-and-forget on purpose: a failed write must
+   not interrupt someone mid-demo, and the vote is a nice-to-have, not the
+   actuation path. */
+const FEEDBACK = new Map();
+async function sendFeedback(btn) {
+  const recoId = btn.dataset.reco;
+  const useful = btn.dataset.fb === "1";
+  FEEDBACK.set(recoId, btn.dataset.fb);
+  btn.parentElement.querySelectorAll("button").forEach(b => b.classList.remove("picked"));
+  btn.classList.add("picked");
+  try {
+    const r = await fetch("/api/feedback", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reco_id: recoId, useful, source: "dashboard" })
+    });
+    const j = await r.json();
+    if (j.dataset) drawDataset(j.dataset);
+  } catch (err) {
+    btn.classList.remove("picked");
+    FEEDBACK.delete(recoId);
+  }
 }
 
 /* Approve a recommendation -> hub commands the UNO Q -> servo/relay acts. */

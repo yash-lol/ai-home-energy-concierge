@@ -1,0 +1,210 @@
+{
+  "schema": 1,
+  "task": "binary occupancy from environmental signals",
+  "trained_at": "2026-08-06T08:15:58+00:00",
+  "trained_on": "public_benchmark",
+  "dataset": {
+    "name": "UCI Occupancy Detection (357)",
+    "url": "https://archive.ics.uci.edu/static/public/357/occupancy+detection.zip",
+    "citation": "Candanedo, L. & Feldheim, V. (2016). Accurate occupancy detection of an office room from light, temperature, humidity and CO2 measurements using statistical learning models. Energy and Buildings, 112, 28-39. UCI Machine Learning Repository, dataset 357.",
+    "n_train": 8143,
+    "base_rate_occupied": 0.2123,
+    "dropped_columns": [
+      "CO2",
+      "HumidityRatio"
+    ],
+    "dropped_because": "this project has no sensor for either"
+  },
+  "algorithm": {
+    "kind": "logistic_regression",
+    "solver": "full-batch GD",
+    "epochs": 400,
+    "lr": 0.5,
+    "l2": 0.0001,
+    "standardised": true
+  },
+  "variants": {
+    "full": {
+      "features": [
+        "temp_c",
+        "humidity",
+        "lux"
+      ],
+      "weights": [
+        -0.245678,
+        0.756527,
+        3.590358
+      ],
+      "bias": -3.525903,
+      "standardiser": {
+        "temp_c": {
+          "mean": 20.619084,
+          "std": 1.016854,
+          "min": 19.0,
+          "max": 23.18
+        },
+        "humidity": {
+          "mean": 25.731507,
+          "std": 5.530871,
+          "min": 16.745,
+          "max": 39.1175
+        },
+        "lux": {
+          "mean": 119.519375,
+          "std": 194.743846,
+          "min": 0.0,
+          "max": 1546.333333
+        }
+      },
+      "scores": {
+        "train": {
+          "n": 8143,
+          "accuracy": 0.9875,
+          "precision": 0.9462,
+          "recall": 0.9977,
+          "f1": 0.9713,
+          "tp": 1725,
+          "tn": 6316,
+          "fp": 98,
+          "fn": 4
+        },
+        "datatest.txt": {
+          "n": 2665,
+          "accuracy": 0.9786,
+          "precision": 0.9472,
+          "recall": 0.9969,
+          "f1": 0.9714,
+          "tp": 969,
+          "tn": 1639,
+          "fp": 54,
+          "fn": 3
+        },
+        "datatest2.txt": {
+          "n": 9752,
+          "accuracy": 0.9884,
+          "precision": 0.9515,
+          "recall": 0.9956,
+          "f1": 0.9731,
+          "tp": 2040,
+          "tn": 7599,
+          "fp": 104,
+          "fn": 9
+        }
+      },
+      "train_ms": 3009.0,
+      "loss_curve": [
+        0.693147,
+        0.170855,
+        0.124964,
+        0.107173,
+        0.097608,
+        0.091611,
+        0.087497,
+        0.0845,
+        0.082224,
+        0.080439,
+        0.079003,
+        0.077827,
+        0.076846,
+        0.076018,
+        0.075311,
+        0.074701,
+        0.07417,
+        0.073704,
+        0.073293,
+        0.072928,
+        0.072618
+      ]
+    },
+    "no_light": {
+      "features": [
+        "temp_c",
+        "humidity"
+      ],
+      "weights": [
+        1.710723,
+        0.624791
+      ],
+      "bias": -2.008168,
+      "standardiser": {
+        "temp_c": {
+          "mean": 20.619084,
+          "std": 1.016854,
+          "min": 19.0,
+          "max": 23.18
+        },
+        "humidity": {
+          "mean": 25.731507,
+          "std": 5.530871,
+          "min": 16.745,
+          "max": 39.1175
+        }
+      },
+      "scores": {
+        "train": {
+          "n": 8143,
+          "accuracy": 0.833,
+          "precision": 0.6384,
+          "recall": 0.4922,
+          "f1": 0.5558,
+          "tp": 851,
+          "tn": 5932,
+          "fp": 482,
+          "fn": 878
+        },
+        "datatest.txt": {
+          "n": 2665,
+          "accuracy": 0.8608,
+          "precision": 0.8426,
+          "recall": 0.7603,
+          "f1": 0.7994,
+          "tp": 739,
+          "tn": 1555,
+          "fp": 138,
+          "fn": 233
+        },
+        "datatest2.txt": {
+          "n": 9752,
+          "accuracy": 0.8452,
+          "precision": 0.611,
+          "recall": 0.7238,
+          "f1": 0.6626,
+          "tp": 1483,
+          "tn": 6759,
+          "fp": 944,
+          "fn": 566
+        }
+      },
+      "train_ms": 2796.1,
+      "loss_curve": [
+        0.693147,
+        0.37273,
+        0.349473,
+        0.343849,
+        0.341993,
+        0.341289,
+        0.341001,
+        0.340878,
+        0.340823,
+        0.340799,
+        0.340787,
+        0.340782,
+        0.340779,
+        0.340778,
+        0.340777,
+        0.340777,
+        0.340777,
+        0.340776,
+        0.340776,
+        0.340776,
+        0.340776
+      ]
+    }
+  },
+  "default_variant": "full",
+  "caveats": [
+    "Trained on an office room in Belgium, February 2015. This is a different building, different climate and different occupancy pattern from the demo room \u2014 treat it as a prior, not a calibrated sensor.",
+    "Light is the dominant feature in the 'full' variant. Since R3 already thresholds on lux, inferred occupancy and R3 are not independent evidence. The 'no_light' variant exists for that reason.",
+    "Inputs outside the training range are extrapolation. predict() returns in_domain=False rather than silently guessing."
+  ]
+}

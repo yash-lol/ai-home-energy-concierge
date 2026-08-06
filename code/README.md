@@ -178,6 +178,82 @@ benchmark.
 R7 is why this is an assistant rather than a thermostat: it removes recommendations that
 would make the home uncomfortable, and it blocks the actuator from carrying them out.
 
+## The learned tier — and what it is not allowed to do
+
+Adding a model must not weaken the safety story, so each kind of intelligence has a
+**bounded mandate** and none may override the one above it:
+
+| Tier | Decides | May not |
+|---|---|---|
+| Deterministic rules + R7 | what is **legal / safe** | be overridden by anything |
+| Learned model | what is **likely** | change a number, or unlock a refused action |
+| LLM (on the NPU) | **wording** | compute, or invent a figure |
+
+### Occupancy inference
+
+The system has no occupancy sensor — occupancy is a simulator toggle, a Modulino button
+override, or a ToF node if one is attached. `hub/occupancy_model.py` turns it into an
+inference: given temperature, humidity and ambient light, is the room occupied?
+
+Trained by `tools/train_occupancy.py` on the [UCI Occupancy Detection
+benchmark](https://archive.ics.uci.edu/dataset/357/occupancy+detection) (Candanedo &
+Feldheim, 2016) — 8,143 training rows and two official held-out splits:
+
+| Variant | Features | acc (datatest) | acc (datatest2) |
+|---|---|---|---|
+| `full` | temp + humidity + **lux** | **0.9786** | **0.9884** |
+| `no_light` | temp + humidity | 0.8608 | 0.8452 |
+
+Both ship in the artifact; `OCCUPANCY_VARIANT` picks one. **`no_light` exists for a
+reason:** lux dominates the `full` model (standardised weights: lux +3.59, humidity
++0.76, temp −0.25), and R3 already thresholds on lux — so inferred occupancy and R3
+would not be independent evidence. The weights are printed at training time rather than
+buried, because that is a fair question to be asked.
+
+Plain-Python logistic regression, trained by full-batch gradient descent. **No numpy, no
+sklearn, no ML runtime** — inference is a dot product over three floats, so it adds no
+dependency to a Windows-on-ARM machine and runs identically on the hub or the UNO Q's
+A53. `python hub/occupancy_model.py` replays the held-out split through the inference
+path and asserts it reproduces the trainer's accuracy.
+
+**It runs in shadow mode by default** (`OCCUPANCY_MODEL=1`): it predicts, the dashboard
+shows its call beside the reported value, and no rule reads it — so a wrong prediction
+cannot change a recommendation or an actuation. `OCCUPANCY_MODEL=2` additionally lets it
+*fill a gap* when no other source supplied occupancy; it never overwrites a reported one.
+
+**Honest limit, stated up front:** that benchmark is an office in Belgium in February,
+19–23.2 °C at 16.8–39.1 % RH. This demo drives 16–32 °C and 0–100 % RH, so many demo
+states are outside anything the model has seen. `predict()` returns `in_domain: False`
+there and the dashboard says *extrapolating* — the held-out accuracy above does **not**
+transfer to those conditions, and should not be quoted as if it does.
+
+### The session dataset
+
+`hub/recorder.py` appends one JSONL row per evaluation tick, plus a row for every
+finding, approval, guardrail refusal, hardware confirmation and dashboard thumb. Two
+jobs: an audit trail of decisions (the equivalent of the `formula` string, for choices
+rather than arithmetic), and the substrate for training.
+
+Labels come from the human: an **approval** is a positive, a **guardrail refusal** is a
+hard negative, a **thumb** is an explicit judgement, and a card shown and never touched
+is a *weak* negative carried at weight 0.25 and marked as such — because "ignored" might
+only mean nobody was looking.
+
+```bash
+python tools/build_dataset.py        # sessions -> data/reco_dataset.csv
+```
+
+It ends by printing a verdict on whether there is enough signal to train on at all, and
+refuses to look impressive when there is not — below 30 positives it says so outright.
+Rows carry the `*_src` provenance stamps and `metered` flags, and the summary reports
+what share of the corpus was measured versus simulated versus synthetic, so a model
+trained on it can never be described as having learned from a real household when it did
+not.
+
+Recording is on by default and writes to `code/data/sessions/`, which is **gitignored** —
+the project claims occupancy data never leaves the house, and that has to be true of the
+repo too. `RECORD_ENABLED=0` turns it off.
+
 ## Hardware
 
 Breadboard-free. Everything connects over Qwiic or Wi-Fi.
@@ -541,6 +617,13 @@ code/
     simulator.py       scripted and random sensor feeds
     cloud_report.py    AI Cloud 100 deep report + deterministic fallback
     benchmark.py       latency / memory / efficiency measurements
+    recorder.py        session JSONL — audit trail and training substrate
+    occupancy_model.py learned occupancy inference (shadow by default)
+    models/            trained artifacts, weights in plain JSON
+  tools/
+    train_occupancy.py fetch UCI 357, train, export models/occupancy_lr.json
+    build_dataset.py   sessions -> labelled CSV, with an honest verdict
+    reconfigure_network.py  re-point the demo at the current LAN
   dashboard/index.html hub dashboard with Apply buttons (no build step)
   phone/index.html     phone PWA with Approve buttons (no build step)
   arduino/
@@ -607,6 +690,7 @@ repository is open source.
 - [Qualcomm AI Hub](https://aihub.qualcomm.com) — model source for the `qairt` NPU path
 - [Arduino UNO Q documentation](https://docs.arduino.cc/hardware/uno-q/) — dual-brain MPU/MCU architecture and the Arduino Bridge RPC library
 - [Qualcomm AI Developer Workflow docs](https://docs.qualcomm.com/bundle/publicresource/topics/80-62010-1/welcome.html)
+- [UCI Occupancy Detection (dataset 357)](https://archive.ics.uci.edu/dataset/357/occupancy+detection) — Candanedo, L. & Feldheim, V. (2016), *Accurate occupancy detection of an office room from light, temperature, humidity and CO2 measurements using statistical learning models*, Energy and Buildings 112, 28–39. Training corpus for `hub/occupancy_model.py`
 - Load power figures: US DOE and ENERGY STAR published typical values (each entry in `hub/energy_model.py` carries its own `source` string)
 - Tariff structure: SDG&E TOU-DR1 residential time-of-use schedule
 - Grid carbon intensity: EPA eGRID CAMX region / California Energy Commission

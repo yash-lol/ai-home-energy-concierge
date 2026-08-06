@@ -25,6 +25,8 @@ from typing import Dict, List, Optional
 
 import rules
 from llm import LLMClient, Recommendation
+from recorder import RECORDER
+from occupancy_model import MODEL as OCCUPANCY, annotate_room
 
 try:
     import paho.mqtt.client as mqtt
@@ -149,10 +151,14 @@ class StateStore:
             if "temp_c" in payload and "temp_c" in prev:
                 temp_drop = prev["temp_c"] - payload["temp_c"]
 
-            self.rooms[room] = {**prev, **payload,
-                                "last_occupied_ts": last_occ,
-                                "lux_high_since": lux_high_since,
-                                "temp_drop_c": temp_drop}
+            merged = {**prev, **payload,
+                      "last_occupied_ts": last_occ,
+                      "lux_high_since": lux_high_since,
+                      "temp_drop_c": temp_drop}
+            # Learned occupancy estimate. In the default shadow mode this only
+            # ATTACHES a prediction — no rule reads it, so a wrong call cannot
+            # change a recommendation or an actuation. See occupancy_model.py.
+            self.rooms[room] = annotate_room(merged)
 
     def update_load(self, key: str, payload: Dict) -> None:
         with self.lock:
@@ -229,6 +235,11 @@ class StateStore:
             "applied_ids": sorted(self.applied_ids),
             "realized": self.realized_totals(),
             "actuations": self.actuations[-8:][::-1],
+            # Live dataset counters. Surfaced so data collection is visible while
+            # it happens — a flywheel the user can watch is worth more than a
+            # silent log file nobody knows is running.
+            "dataset": RECORDER.stats(),
+            "occupancy_model": OCCUPANCY.info(),
         }
 
 
@@ -272,8 +283,11 @@ def on_message(client, userdata, msg):
         elif msg.topic.startswith("home/loads/") and len(parts) >= 4:
             STORE.update_load(f"{parts[2]}/{parts[3]}", payload)
         elif msg.topic.startswith("home/actuator/") and len(parts) >= 4:
-            # Physical-action confirmation from the UNO Q.
+            # Physical-action confirmation from the UNO Q. This is the ground
+            # truth for whether an approved action actually happened, so it is
+            # recorded as its own row rather than inferred from the apply.
             STORE.record_actuation(f"{parts[2]}/{parts[3]}", payload)
+            RECORDER.actuation(f"{parts[2]}/{parts[3]}", payload)
             print(f"[mqtt] actuator confirmed {parts[2]}/{parts[3]} -> "
                   f"{payload.get('state')} via {payload.get('source')} "
                   f"ok={payload.get('ok')}")
@@ -343,6 +357,7 @@ def evaluation_tick() -> List[Recommendation]:
 
         STORE.recos.append(rec)
         fresh.append(rec)
+        RECORDER.finding(rec)
         print(f"[reco] ({rec.narrated_by}) [{rec.severity}] {rec.title}  ${rec.usd:.2f}")
 
         if MQTT_CLIENT is not None:
@@ -370,7 +385,11 @@ async def eval_loop() -> None:
     while True:
         try:
             fresh = await asyncio.to_thread(evaluation_tick)
-            await broadcast({"type": "state", "data": STORE.public_state()})
+            # One public_state() per tick, shared by the recorder and the
+            # broadcast, so the row on disk is exactly what the clients saw.
+            state = STORE.public_state()
+            RECORDER.tick(state)
+            await broadcast({"type": "state", "data": state})
             for rec in fresh:
                 await broadcast({"type": "reco", "data": rec.to_dict()})
         except Exception as exc:
@@ -413,8 +432,23 @@ def _banner() -> str:
   Broker    : {MQTT_HOST}:{MQTT_PORT}
   LLM       : {os.environ.get('LLM_BASE_URL', 'http://localhost:8080/v1')}
               (LLM_ENABLED={os.environ.get('LLM_ENABLED', '1')})
+  Recording : {RECORDER.path.name if RECORDER.enabled else 'OFF (RECORD_ENABLED=0)'}
+  Occupancy : {_occupancy_banner()}
 {'=' * 66}
 """
+
+
+def _occupancy_banner() -> str:
+    """One line on whether the learned tier is live, and on what terms."""
+    info = OCCUPANCY.info()
+    if not info["ok"]:
+        return f"unavailable — {info['reason']}"
+    if not info["enabled"]:
+        return "loaded but OFF (OCCUPANCY_MODEL=0)"
+    mode = {1: "shadow — predicts, drives nothing",
+            2: "fill — supplies occupancy only when nobody else does"}
+    return (f"{info['variant']} [{mode.get(info['mode'], info['mode'])}], "
+            f"held-out acc {info['accuracy']}")
 
 
 @app.get("/")
@@ -524,6 +558,9 @@ async def api_apply(body: Dict):
     allowed, reason = _guardrail_allows(snap, rec, load_key, action, now_dt)
     if not allowed:
         print(f"[apply] REFUSED {load_key} -> {action}: {reason}")
+        # A refusal is a HARD NEGATIVE for the dataset: a human asked for this
+        # and the deterministic gate said no. Worth more than an ignored card.
+        RECORDER.refusal(reco_id, load_key, action, reason, "comfort_guardrail")
         return JSONResponse({"ok": False, "refused": True, "reason": reason,
                              "gate": "comfort_guardrail"}, status_code=409)
 
@@ -545,6 +582,10 @@ async def api_apply(body: Dict):
                                  "ts": time.time()})
 
     STORE.book_realized(rec)
+    # THE POSITIVE LABEL. A human saw this advice and acted on it — the signal
+    # tools/build_dataset.py trains the relevance model against.
+    RECORDER.apply(reco_id, load_key, action, body.get("approved_by", "user"),
+                   round(rec.usd, 4), published)
     print(f"[apply] {load_key} -> {action} (reco {reco_id}), "
           f"realized ${rec.usd:.3f}, published={published}")
 
@@ -588,6 +629,38 @@ def _guardrail_allows(snap: Dict, rec, load_key: str, action: str, now_dt):
                        f"{rules.COMFORT_MIN_C:.0f}°C comfort limit — turning the "
                        f"heater off would make the room uncomfortable.")
     return True, ""
+
+
+@app.post("/api/feedback")
+async def api_feedback(body: Dict):
+    """Explicit thumbs on a recommendation — a deliberate label.
+
+    An approval is a positive and a guardrail refusal is a hard negative, but
+    the common case is a card that is simply never touched, and 'ignored' is a
+    weak signal: it could mean wrong, or badly timed, or the user was not
+    looking. This endpoint lets someone say which, in one tap.
+
+    Deliberately permissive about `reco_id` — it records a judgement about a
+    finding that may already have aged out of STORE.recos, and losing the label
+    because the card scrolled away would defeat the point.
+    """
+    reco_id = body.get("reco_id")
+    if not reco_id:
+        return JSONResponse({"error": "reco_id required"}, status_code=400)
+    if "useful" not in body:
+        return JSONResponse({"error": "useful must be true or false"}, status_code=400)
+
+    useful = bool(body["useful"])
+    RECORDER.feedback(reco_id, useful, str(body.get("note", "")),
+                      str(body.get("source", "dashboard")))
+    print(f"[feedback] {reco_id} -> {'useful' if useful else 'not useful'}")
+    return JSONResponse({"ok": True, "dataset": RECORDER.stats()})
+
+
+@app.get("/api/dataset")
+async def api_dataset():
+    """What has been collected this session. Read by the dashboard tile."""
+    return JSONResponse(RECORDER.stats())
 
 
 @app.post("/api/deep_report")
