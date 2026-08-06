@@ -231,7 +231,7 @@ Raise the room temperature (sensor injection or the real sensor), then tap Appro
 > show depth.
 
 **"How hard is it to install?"**
-> Three commands with no hardware, and `smoke_test.py` runs 32 checks so you know
+> Three commands with no hardware, and `smoke_test.py` runs 38 checks so you know
 > immediately whether your environment is sound. Every tier has a tested fallback.
 
 ---

@@ -198,6 +198,36 @@
   .shadow b { color: var(--text-secondary); font-weight: 600; }
   .shadow .oos { color: var(--warning); }
 
+  /* Decisions the guardrail withheld. Rendered muted and un-actionable — they
+     are evidence of judgement, not offers. Showing them is what makes the
+     difference between "found 2 things" and "considered 4, declined 2". */
+  .vetoed {
+    border: 1px dashed var(--border); border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 8px; opacity: 0.85;
+  }
+  .vetoed .vhead {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    font-size: 11px; color: var(--warning); font-weight: 600;
+  }
+  .vetoed h4 {
+    margin: 5px 0 3px; font-size: 12.5px; font-weight: 500;
+    color: var(--text-secondary); text-decoration: line-through;
+    text-decoration-color: var(--text-muted);
+  }
+  .vetoed .why { font-size: 11px; color: var(--text-secondary); line-height: 1.55; }
+  .vetoed .traded {
+    font-size: 11px; color: var(--good); margin-top: 5px;
+  }
+  .vetoed .withheld {
+    font-size: 10.5px; color: var(--text-muted); margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .considered {
+    font-size: 11px; color: var(--text-muted); margin: 0 0 10px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--gridline);
+  }
+  .considered b { color: var(--text-secondary); }
+
   /* ---------- table view (the WCAG-clean twin) ---------- */
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--gridline); }
@@ -319,7 +349,7 @@
 
     <div class="card">
       <h2>Recommendations</h2>
-      <div class="cardsub">Numbers computed in Python · wording by the local model · expand any card to audit</div>
+      <div class="cardsub">Numbers computed in Python · wording by the local model · declined decisions shown too</div>
       <div class="recos" id="recos">
         <div class="empty">Waiting for the first finding…</div>
       </div>
@@ -585,14 +615,52 @@ function drawStateTable() {
   document.getElementById("tbody-state").innerHTML = rows.join("");
 }
 
+/* The decisions that were considered and declined.
+   These carry a full cost figure — the system knows exactly what the saving
+   would have been and is choosing not to take it. That is the point. */
+function drawVetoed(vetoed) {
+  if (!vetoed?.length) return "";
+  return vetoed.map(v => {
+    const traded = (v.traded_for ?? []).length
+      ? `<div class="traded">↳ comfort protected here — the saving is taken on
+           <b>${esc(v.traded_for.join(", "))}</b> instead</div>`
+      : "";
+    return `
+    <div class="vetoed">
+      <div class="vhead">⃠ DECLINED
+        <span class="badge">${esc(v.gate ?? "guardrail")}</span></div>
+      <h4>${esc(v.headline ?? v.rule_name ?? "")}</h4>
+      <div class="why">${esc(v.reason ?? "")}</div>
+      ${traded}
+      <div class="withheld">Withheld saving: $${(v.usd ?? 0).toFixed(2)} ·
+        ${(v.kwh ?? 0).toFixed(2)} kWh · rule ${esc(v.rule_name ?? "")}</div>
+    </div>`;
+  }).join("");
+}
+
 function drawRecos(recos) {
   const el = document.getElementById("recos");
-  if (!recos.length) {
+  const vetoed = STATE.suppressed ?? [];
+  const considered = STATE.considered ?? recos.length;
+
+  // The headline claim: the system did not just find things, it weighed them.
+  const summary = considered
+    ? `<p class="considered">Considered <b>${considered}</b> ·
+         recommending <b>${recos.length}</b> ·
+         declined <b>${vetoed.length}</b> on safety grounds</p>`
+    : "";
+
+  if (!recos.length && !vetoed.length) {
     el.innerHTML = `<div class="empty">No waste detected. Everything running is in use.</div>`;
     return;
   }
+  if (!recos.length) {
+    el.innerHTML = summary + drawVetoed(vetoed)
+      + `<div class="empty">Nothing further to recommend right now.</div>`;
+    return;
+  }
   const applied = new Set(STATE.applied_ids ?? []);
-  el.innerHTML = recos.map(r => {
+  el.innerHTML = summary + drawVetoed(vetoed) + recos.map(r => {
     const s = SEV[r.severity] ?? SEV.warning;
     const isApplied = applied.has(r.id);
     const control = isApplied

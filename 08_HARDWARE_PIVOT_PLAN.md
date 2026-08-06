@@ -16,7 +16,7 @@ The project was designed around breadboard hardware we don't have: PIR (D2),
 photoresistor (A0), DHT22 (D4), and a micro-servo (D9) pressing a light switch.
 
 Everything **above the serial line already works and is verified** — hub, MQTT
-broker, rules engine, GenieX NPU narration, 32/32 smoke tests, and the
+broker, rules engine, GenieX NPU narration, 38/38 smoke tests, and the
 board→broker→hub loop proven with `--fake-serial`.
 
 What we actually have:
@@ -201,7 +201,7 @@ pre-flight gate and MQTT ingest already do what we need), `hub/rules.py`,
    saving realized".
 4. **R7 safety gate (the money demo):** turn the knob past 27 °C → tap Approve on
    the A/C → **HTTP 409, nothing switches**, amber refusal note on the card.
-5. `python smoke_test.py` still **32/32** (uses no hardware).
+5. `python smoke_test.py` still **38/38** (uses no hardware).
 6. Re-run `hub/benchmark.py` with GenieX for the README table.
 7. **Record video of #3 and #4 the moment they work** — Archetype E insurance.
 

@@ -85,9 +85,24 @@ def main() -> int:
 
         hot = json.loads(json.dumps(snap))
         hot["rooms"]["living"]["temp_c"] = 29.5
-        hot_fs = rules.evaluate(hot, __import__("datetime").datetime(2026, 8, 3, 18, 30))
+        hot_dt = __import__("datetime").datetime(2026, 8, 3, 18, 30)
+        hot_fs = rules.evaluate(hot, hot_dt)
         check("R7 comfort guardrail suppresses",
               not any(f.load_key.endswith("/ac") for f in hot_fs), "no A/C advice at 29.5C")
+
+        # The veto must be VISIBLE, not merely effective — a suppressed finding
+        # keeps its cost so the UI can show what the system declined to take.
+        offered, vetoed = rules.evaluate_all(hot, hot_dt)
+        ac_vetoed = [f for f in vetoed if f.load_key.endswith("/ac")]
+        check("suppressed findings are returned for display", len(ac_vetoed) == 1,
+              f"{len(vetoed)} vetoed, {len(offered)} offered")
+        if ac_vetoed:
+            v = ac_vetoed[0]
+            check("suppressed finding keeps its cost and reason",
+                  v.usd > 0 and "comfort" in v.suppressed_reason.lower(),
+                  f"${v.usd:.3f} withheld")
+        check("evaluate() still returns only actionable advice",
+              all(not f.suppressed for f in offered) and len(offered) == len(hot_fs))
     except Exception as exc:
         check("rules", False, str(exc))
 
@@ -205,6 +220,20 @@ def main() -> int:
                 check("unknown reco_id rejected", False, "expected a 404")
             except urllib.error.HTTPError as e:
                 check("unknown reco_id rejected", e.code == 404, f"HTTP {e.code}")
+
+        # --- the session recorder: audit trail and training substrate ---
+        ds = get("/api/dataset")
+        check("recorder is collecting", ds.get("enabled") is True and ds.get("rows", 0) > 0,
+              f"{ds.get('rows')} rows, {ds.get('ticks')} ticks")
+        if recos:
+            fb = post("/api/feedback", {"reco_id": recos[0]["id"], "useful": True})
+            check("feedback endpoint records a label",
+                  fb.get("dataset", {}).get("feedback", 0) >= 1)
+        try:
+            post("/api/feedback", {"reco_id": "x"})
+            check("feedback without a verdict rejected", False, "expected a 400")
+        except urllib.error.HTTPError as e:
+            check("feedback without a verdict rejected", e.code == 400, f"HTTP {e.code}")
 
         rep = post("/api/deep_report", {})
         check("deep report endpoint returns", bool(rep.get("summary")))

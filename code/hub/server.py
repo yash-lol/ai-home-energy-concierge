@@ -67,6 +67,10 @@ class StateStore:
         self.realized: List[Dict] = []
         self.applied_ids: set = set()
         self.actuations: List[Dict] = []
+        # Findings a guardrail vetoed this tick — computed, costed, not offered.
+        self.suppressed: List[Dict] = []
+        self.suppressed_ids: set = set()
+        self.considered = 0          # offered + suppressed, for the "considered N" line
         self.lock = threading.Lock()
 
     # -- actuation ---------------------------------------------------------
@@ -115,6 +119,36 @@ class StateStore:
             if before != len(self.realized):
                 print(f"[actuation] UN-BOOKED {reco_id}: {load_key} reported "
                       f"ok=false via {payload.get('source')} — saving not realized")
+
+    def set_suppressed(self, vetoed: List, offered_rooms: Dict[str, set]) -> List[str]:
+        """Replace the vetoed list. Returns ids newly suppressed since last tick.
+
+        Only NEW suppressions are returned, because a guardrail that keeps
+        vetoing the same finding every 5 s is one decision, not seven hundred —
+        logging each tick would bury the demo's audit trail in repeats.
+        """
+        rows = []
+        for f in vetoed:
+            load = f.load_key.split("/")[-1]
+            rows.append({
+                "id": f.id, "rule_name": f.rule_name, "severity": f.severity,
+                "room": f.room, "load": load,
+                "usd": f.usd, "kwh": f.estimate.kwh if f.estimate else 0.0,
+                "co2_kg": f.estimate.co2_kg if f.estimate else 0.0,
+                "headline": f.headline,
+                "gate": f.suppressed_by, "reason": f.suppressed_reason,
+                "formula": f.estimate.formula if f.estimate else "",
+                # When the same room still has advice the system IS willing to
+                # give, name it. That turns two independent cards into one
+                # visible trade-off: comfort protected here, saving taken there.
+                "traded_for": sorted(offered_rooms.get(f.room, set()) - {load}),
+            })
+        with self.lock:
+            self.suppressed = rows
+            now_ids = {r["id"] for r in rows}
+            fresh = sorted(now_ids - self.suppressed_ids)
+            self.suppressed_ids = now_ids
+            return fresh
 
     def realized_totals(self) -> Dict:
         with self.lock:
@@ -233,6 +267,8 @@ class StateStore:
             "mqtt_connected": self.mqtt_connected,
             "recos": [r.to_dict() for r in self.latest_recos(12)],
             "applied_ids": sorted(self.applied_ids),
+            "suppressed": list(self.suppressed),
+            "considered": self.considered,
             "realized": self.realized_totals(),
             "actuations": self.actuations[-8:][::-1],
             # Live dataset counters. Surfaced so data collection is visible while
@@ -333,10 +369,24 @@ def evaluation_tick() -> List[Recommendation]:
     now_dt = datetime.fromtimestamp(snap["now"])
 
     try:
-        findings = rules.evaluate(snap, now_dt)
+        findings, vetoed = rules.evaluate_all(snap, now_dt)
     except Exception as exc:
         print(f"[eval] rules failed: {exc}")
         return []
+
+    # Vetoed findings are shown, never narrated: they are not advice, so they do
+    # not get an LLM call, and the deterministic reason string is what the UI
+    # renders. Cheaper, and it cannot drift from what the guardrail actually did.
+    offered_by_room: Dict[str, set] = {}
+    for f in findings:
+        offered_by_room.setdefault(f.room, set()).add(f.load_key.split("/")[-1])
+    STORE.considered = len(findings) + len(vetoed)
+    for reco_id in STORE.set_suppressed(vetoed, offered_by_room):
+        row = next((r for r in STORE.suppressed if r["id"] == reco_id), {})
+        RECORDER.veto(reco_id, f"{row.get('room')}/{row.get('load')}",
+                      row.get("reason", ""), row.get("gate", "comfort_guardrail"),
+                      row.get("usd", 0.0))
+        print(f"[veto] {reco_id}: {row.get('reason', '')}")
 
     fresh: List[Recommendation] = []
     now = time.time()

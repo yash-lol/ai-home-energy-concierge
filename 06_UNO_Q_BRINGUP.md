@@ -83,7 +83,7 @@ pip install -r requirements.txt
 python smoke_test.py
 ```
 
-✅ **Gate: `32/32 checks passed`.** If not, fix that before going near hardware. The most
+✅ **Gate: `38/38 checks passed`.** If not, fix that before going near hardware. The most
 likely cause is a plain `pip install uvicorn` without the `[standard]` extra.
 
 Then start the broker and hub in two terminals, and note the LAN IP the hub prints:
@@ -584,7 +584,7 @@ it interactively, or set up key-based auth once and skip the password entirely.
 
 Tick these in order. Do not skip ahead — each gate makes the next failure interpretable.
 
-- [ ] **0** `smoke_test.py` → 32/32 on the PC; hub + broker running; `<PC_IP>` written down
+- [ ] **0** `smoke_test.py` → 38/38 on the PC; hub + broker running; `<PC_IP>` written down
 - [ ] **1** `/quad-detect` confirms the board; SSH shell reachable via `plink`/PuTTY; `ping <PC_IP>` succeeds from the board
 - [ ] **2** PIR, LDR, DHT22 wired (actuator not yet)
 - [ ] **3** Minimal test sketch → clean JSON, PIR and LDR both respond

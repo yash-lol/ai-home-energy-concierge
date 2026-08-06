@@ -79,9 +79,20 @@ class Finding:
     suggested_actions: List[str] = field(default_factory=list)
     estimate: Optional[WasteEstimate] = None
 
+    # Set when a guardrail vetoed this finding. The finding is still computed and
+    # still costed — it is simply not offered. Keeping it (rather than dropping
+    # it on the floor) is what lets the UI show the decisions the system
+    # CONSIDERED AND REJECTED, which is the visible half of having judgement.
+    suppressed_by: str = ""            # "" = live advice; else the rule that vetoed
+    suppressed_reason: str = ""
+
     @property
     def usd(self) -> float:
         return self.estimate.usd if self.estimate else 0.0
+
+    @property
+    def suppressed(self) -> bool:
+        return bool(self.suppressed_by)
 
 
 def _model_key(load_name: str) -> str:
@@ -357,22 +368,37 @@ def r6_peak_hour_heavy_load(snapshot: Dict, now_dt: datetime) -> List[Finding]:
 # --------------------------------------------------------------------------
 
 def r7_comfort_guardrail(findings: List[Finding], snapshot: Dict) -> List[Finding]:
-    """Remove recommendations that would make the home uncomfortable.
+    """TAG recommendations that would make the home uncomfortable.
 
     An assistant that tells you to switch off the A/C at 29 C is not helping. This
     rule is why the system can be trusted to act on its own advice.
+
+    It used to `continue` past a vetoed finding, which threw away the most
+    interesting thing the system does. A suppressed finding is now marked and
+    returned, so callers can either drop it (`evaluate`, unchanged) or show it as
+    a decision that was considered and rejected (`evaluate_all`). The veto itself
+    is unchanged — suppressed advice is never narrated and never offered, and
+    server.py enforces the same limit again as a pre-flight gate on /api/apply.
     """
-    kept: List[Finding] = []
     for f in findings:
         load_name = f.load_key.split("/")[-1]
         room_temp = snapshot.get("rooms", {}).get(f.room, {}).get("temp_c")
+        if room_temp is None:
+            continue
 
-        if load_name == "ac" and room_temp is not None and room_temp > COMFORT_MAX_C:
-            continue  # too hot to suggest cutting cooling
-        if load_name == "heater" and room_temp is not None and room_temp < COMFORT_MIN_C:
-            continue  # too cold to suggest cutting heat
-        kept.append(f)
-    return kept
+        if load_name == "ac" and room_temp > COMFORT_MAX_C:
+            f.suppressed_by = "comfort_guardrail"
+            f.suppressed_reason = (
+                f"{f.room} is {room_temp:.1f} C, above the {COMFORT_MAX_C:.0f} C "
+                f"comfort limit — cutting cooling here would make the room "
+                f"uncomfortable, so this saving is not offered.")
+        elif load_name == "heater" and room_temp < COMFORT_MIN_C:
+            f.suppressed_by = "comfort_guardrail"
+            f.suppressed_reason = (
+                f"{f.room} is {room_temp:.1f} C, below the {COMFORT_MIN_C:.0f} C "
+                f"comfort limit — cutting heat here would make the room "
+                f"uncomfortable, so this saving is not offered.")
+    return findings
 
 
 DETECTORS = [
@@ -385,8 +411,14 @@ DETECTORS = [
 ]
 
 
-def evaluate(snapshot: Dict, now_dt: Optional[datetime] = None) -> List[Finding]:
-    """Run every rule and return findings sorted by dollar value, descending."""
+def evaluate_all(snapshot: Dict, now_dt: Optional[datetime] = None):
+    """Run every rule. Returns (offered, suppressed), each sorted by cost.
+
+    `suppressed` are findings a guardrail vetoed. They are fully computed and
+    fully costed — the system knows exactly what that saving would have been and
+    declines to take it. Showing them is the difference between a system that
+    looks like it found two things and one that visibly considered four.
+    """
     if now_dt is None:
         now_dt = datetime.fromtimestamp(snapshot.get("now", 0))
 
@@ -399,7 +431,18 @@ def evaluate(snapshot: Dict, now_dt: Optional[datetime] = None) -> List[Finding]
 
     findings = r7_comfort_guardrail(findings, snapshot)
     findings.sort(key=lambda f: f.usd, reverse=True)
-    return findings
+    return ([f for f in findings if not f.suppressed],
+            [f for f in findings if f.suppressed])
+
+
+def evaluate(snapshot: Dict, now_dt: Optional[datetime] = None) -> List[Finding]:
+    """Findings the system is willing to recommend, sorted by dollar value.
+
+    Suppressed findings are NOT included — this is the actionable list, and every
+    existing caller depends on that. Use `evaluate_all()` to see the vetoed ones.
+    """
+    offered, _ = evaluate_all(snapshot, now_dt)
+    return offered
 
 
 # --------------------------------------------------------------------------
@@ -477,9 +520,9 @@ if __name__ == "__main__":
     print("=" * 92)
 
     for name, snap, when in scenarios:
-        fs = evaluate(snap, when)
+        fs, vetoed = evaluate_all(snap, when)
         print(f"\n--- {name}")
-        if not fs:
+        if not fs and not vetoed:
             print("    (no findings)")
         for f in fs:
             print(f"    [{f.severity:8s}] {f.rule_name}")
@@ -488,4 +531,9 @@ if __name__ == "__main__":
             for e in f.evidence:
                 print(f"        - {e}")
             print(f"      actions: {', '.join(f.suggested_actions)}")
+        for f in vetoed:
+            # Printed so the self-test shows what was WITHHELD, not just what was
+            # offered. A rule that silently removes things is hard to trust.
+            print(f"    [SUPPRESSED] {f.rule_name}  (${f.usd:.3f} not offered)")
+            print(f"      vetoed by {f.suppressed_by}: {f.suppressed_reason}")
     print("\n" + "=" * 92 + "\n")

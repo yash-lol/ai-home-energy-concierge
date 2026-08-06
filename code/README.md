@@ -178,6 +178,34 @@ benchmark.
 R7 is why this is an assistant rather than a thermostat: it removes recommendations that
 would make the home uncomfortable, and it blocks the actuator from carrying them out.
 
+### The decisions it declined
+
+A guardrail that silently removes advice is hard to trust, and it throws away the most
+interesting thing the system does. `rules.evaluate_all()` returns vetoed findings
+**tagged rather than dropped**, fully computed and fully costed, and the dashboard shows
+them greyed out beside the live ones:
+
+```
+Considered 2 · recommending 1 · declined 1 on safety grounds
+
+⃠ DECLINED   comfort_guardrail
+  A/C cooling an empty home  ($0.029 withheld)
+  living is 29.5 C, above the 27 C comfort limit — cutting cooling here would
+  make the room uncomfortable, so this saving is not offered.
+  ↳ comfort protected here — the saving is taken on lights instead
+```
+
+That last line is the system resolving a **conflict between two loads**: both are
+wasting money, and it declines the one that would cost you comfort while still taking
+the one that would not. `evaluate()` is unchanged and still returns only actionable
+advice, so nothing downstream can accidentally offer a suppressed finding, and
+`/api/apply` enforces the same limit a second time as a pre-flight gate.
+
+Vetoes are recorded as their own row type, **never as a `refusal`**. A refusal is a
+human asking and being told no — a real preference signal. A veto is advice nobody was
+ever shown, and scoring it as a negative would teach a model that people dislike
+recommendations they never saw.
+
 ## The learned tier — and what it is not allowed to do
 
 Adding a model must not weaken the safety story, so each kind of intelligence has a
@@ -538,9 +566,10 @@ curl -X POST http://localhost:8000/api/sensor -H "Content-Type: application/json
 python smoke_test.py
 ```
 
-32 checks covering arithmetic, every rule, the comfort guardrail (as both a filter and
-an actuation gate), LLM fallback, cloud fallback, the live server, and the full
-approve → command → realized-saving loop. Exits non-zero on failure.
+38 checks covering arithmetic, every rule, the comfort guardrail (as a filter, an
+actuation gate, and a visible declined decision), LLM fallback, cloud fallback, the
+session recorder and feedback endpoint, the live server, and the full approve → command
+→ realized-saving loop. Exits non-zero on failure.
 
 > **Run it with nothing else live.** `smoke_test.py` starts its own hub and sets up its
 > own fixtures, so a running instance of the system will make it fail in confusing ways:
@@ -632,7 +661,7 @@ code/
     bridge.py          USB fallback, runs on the PC
   mosquitto.conf       broker config that binds 0.0.0.0
   requirements.txt
-  smoke_test.py        32 checks, including the actuation loop and safety gate
+  smoke_test.py        38 checks, including the actuation loop and safety gate
   LICENSE              MIT
 ```
 

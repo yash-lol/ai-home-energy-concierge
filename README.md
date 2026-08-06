@@ -39,7 +39,7 @@ repository root is the first page a reader lands on.
 ## Live repository
 
 **https://github.com/gowtham612/ai-home-energy-concierge** — public, MIT licensed.
-Verified: a fresh `git clone` passes 32/32 smoke checks with no manual fixes.
+Verified: a fresh `git clone` passes 38/38 smoke checks with no manual fixes.
 
 Submit that URL via the organizers' Microsoft Form by **Friday 12:00 PM** (target 10:30).
 
@@ -104,7 +104,7 @@ affect us, because our sensor and actuator code is hand-written and tested.
 
 The code in `code/` is not pseudocode. It was run end-to-end on Windows on Arm:
 
-- **32/32 smoke test checks pass** (`python smoke_test.py`)
+- **38/38 smoke test checks pass** (`python smoke_test.py`)
 - All **7 rules** fire; the comfort guardrail suppresses advice **and refuses actuation**
 - **Real MQTT** path verified: simulator → broker → hub → rules → narration → dashboard
 - **The full actuation loop verified**: approve → command → UNO Q executes → confirmation
@@ -129,7 +129,7 @@ break the actuation demo. Both are flagged in the cheatsheet and the prompt pack
 
 ```bash
 pip install -r code/requirements.txt      # note: uvicorn[standard], not plain uvicorn
-cd code && python smoke_test.py           # expect 32/32
+cd code && python smoke_test.py           # expect 38/38
 python hub/benchmark.py                   # your baseline numbers
 python hub/server.py                      # then open the printed LAN URL
 ```

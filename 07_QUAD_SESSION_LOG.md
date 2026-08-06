@@ -1126,3 +1126,108 @@ mixed-provenance test. Harmless; clear it by restarting the hub.
 - **Stale-data indicator** — the dashboard showed 86-minute-old readings as if
   live during this session. Proposed but NOT built: grey out anything older than
   ~15 s. Worth doing before the demo.
+
+---
+
+# §19 Dataset, learned occupancy, and the declined-decisions panel (2026-08-06)
+
+Branch **`ml-dataset-and-models`**. Additive: nothing on the existing critical path
+changed behaviour. `smoke_test.py` is now **38/38** (was 32/32 — six new checks; the
+count is quoted in the deck and eight docs, all swept, and `presentation.html` was
+rebuilt from its template).
+
+## 19.1 Nothing was being recorded
+
+`power_history` was a 60-entry deque — five minutes — and everything else died with
+the process. No audit trail of decisions, and no substrate to learn from.
+
+`hub/recorder.py` appends JSONL: one row per evaluation tick plus a row for every
+finding, approval, guardrail refusal, guardrail veto, hardware confirmation and
+dashboard thumb. Wired into `server.py` at six points. It swallows its own
+exceptions and disables itself after five consecutive write failures — a dataset is
+worth less than a working demo.
+
+Rows carry the `*_src` stamps and `metered` flags plus a computed provenance summary,
+so a model trained on them can never be described as having learned from a real
+household when it did not. `code/data/sessions/` is **gitignored** — the project
+claims occupancy data never leaves the house.
+
+`tools/build_dataset.py` joins findings to the tick that produced them and to their
+outcome, then prints a verdict: below 30 positives it says outright that there is not
+enough to train on. Labels: approval = positive, refusal = hard negative, thumb =
+explicit, untouched card = weak negative at weight 0.25 and marked.
+
+## 19.2 Learned occupancy — UCI 357, shadow by default
+
+There is no occupancy sensor; occupancy was a toggle. `hub/occupancy_model.py` infers
+it from temperature, humidity and lux, trained by `tools/train_occupancy.py` on the
+UCI Occupancy Detection benchmark (Candanedo & Feldheim, 2016).
+
+| Variant | Features | datatest | datatest2 |
+|---|---|---|---|
+| `full` | temp + humidity + lux | 0.9786 | 0.9884 |
+| `no_light` | temp + humidity | 0.8608 | 0.8452 |
+
+**Plain Python — no numpy, no sklearn.** Inference is a dot product over three floats,
+so it adds no dependency to a Windows-on-ARM machine and would run unchanged on the
+A53. `python hub/occupancy_model.py` replays the held-out split through the inference
+path and asserts it reproduces the trainer's number (2608/2665 = 0.9786, matched).
+
+**Two things to say out loud before anyone asks:**
+
+1. **Lux dominates.** Standardised weights: lux **+3.59**, humidity +0.76, temp −0.25.
+   R3 already thresholds on lux, so inferred occupancy and R3 are *not* independent
+   evidence. `no_light` exists for exactly that, and the weights print at training time.
+2. **Our demo range is outside the training range.** UCI is an office at 19–23.2 °C /
+   16.8–39.1 % RH; we drive 16–32 °C / 0–100 %. `predict()` returns `in_domain: False`
+   there and the dashboard says *extrapolating*. **Do not quote 97.9 % while standing
+   in a 29.5 °C simulated room.**
+
+Default mode is **shadow** (`OCCUPANCY_MODEL=1`): predicts, displays beside the
+reported value, drives nothing. Mode 2 fills a gap only when no other source supplied
+occupancy — it never overwrites a reported value.
+
+## 19.3 The declined-decisions panel — and the conflict beat for free
+
+`r7_comfort_guardrail()` used to `continue` past a vetoed finding. It now tags and
+returns it; `evaluate_all()` gives `(offered, suppressed)` while `evaluate()` keeps its
+old contract exactly, so no existing caller changed.
+
+Live-verified against a running hub:
+
+```
+Considered 2 · recommending 1 · declined 1 on safety grounds
+DECLINED  away_with_hvac_on  $0.029 withheld   traded_for -> ['lights']
+```
+
+That `traded_for` is the conflict beat we discussed building separately — it turned out
+to fall out of this for free. Both loads are wasting; the system declines the one that
+costs comfort and takes the one that does not, and says so.
+
+Vetoes record as their own row type, **never as a `refusal`**: a refusal is a human
+asking and being told no, a veto is advice nobody saw. Only *transitions* are logged —
+one veto row across many ticks, verified.
+
+## 19.4 Verified
+
+Ran in an isolated venv (this machine had no fastapi/paho):
+
+| Check | Result |
+|---|---|
+| `smoke_test.py` | **38/38** |
+| `hub/rules.py` self-test | R7 scenario now prints the withheld $0.319 |
+| `hub/recorder.py` self-test | 7 row types, provenance, degrades on unwritable dir |
+| `hub/occupancy_model.py` self-test | replay matches trainer accuracy |
+| `tools/train_occupancy.py` | downloads, trains both variants, exports 5 KB JSON |
+| `tools/build_dataset.py` | verdict fires correctly on a thin corpus |
+| Live hub | veto panel, `traded_for`, shadow model, dataset counters all correct |
+
+## 19.5 Still open
+
+- **Dashboard rendering is unverified in a browser.** The HTML/CSS/JS changes
+  (declined cards, 👍/👎, dataset tile, shadow line) were never loaded in a real
+  browser — check before the demo.
+- `code/simulator/index.html` deliberately **untouched** (it was being fixed in
+  parallel). It does not yet render declined decisions or the thumbs.
+- The corpus is thin. Leave the hub recording to build one.
+- Everything from §18.6 remains open.

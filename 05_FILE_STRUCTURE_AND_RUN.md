@@ -33,7 +33,7 @@ hackathon_energy_concierge/
     ├── LICENSE                     MIT
     ├── requirements.txt            6 pinned dependencies
     ├── mosquitto.conf              broker config that binds 0.0.0.0 (not just localhost)
-    ├── smoke_test.py               32 checks — run this first, always
+    ├── smoke_test.py               38 checks — run this first, always
     │
     ├── hub/                        the Copilot+ PC orchestrator
     │   ├── energy_model.py         (200 ln) deterministic arithmetic — the source of every number
@@ -156,7 +156,7 @@ cd code
 python smoke_test.py
 ```
 
-**Expect `32/32 checks passed`** and exit code 0. It covers dependencies, the energy
+**Expect `38/38 checks passed`** and exit code 0. It covers dependencies, the energy
 model's arithmetic, all 7 rules, the comfort guardrail as both a filter and an actuation
 gate, the LLM fallback, the cloud fallback, and a live server through the full
 approve → command → realized-saving loop.

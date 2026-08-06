@@ -10,8 +10,12 @@ WHERE THE LABELS COME FROM
     apply       1   a human approved it and something physically happened
     feedback    1/0 an explicit thumb on the card — the strongest signal here,
                     because it is a judgement rather than an absence of one
-    refusal     0   the R7 guardrail refused. A HARD negative: the advice was
-                    not merely unwanted, it was unsafe to carry out
+    refusal     0   the R7 guardrail refused an action a human ASKED FOR. A HARD
+                    negative: the advice was not merely unwanted, it was unsafe
+    veto        --  withheld before anyone saw it. NOT a label — nobody expressed
+                    a preference about a card that was never shown, and counting
+                    it as a negative would teach the model that people dislike
+                    advice they were never given. Audit evidence only.
     (nothing)   0*  shown and never touched. A WEAK negative — it may mean
                     wrong, or badly timed, or nobody was looking at the screen.
                     Emitted with weight 0.25 and marked, so a trainer can drop
@@ -235,6 +239,14 @@ def main() -> int:
     print(f"  {len(rows)} rows from {files} session file(s)")
     for k, n in kinds.most_common():
         print(f"    {k:<14} {n}")
+
+    vetoes = kinds.get("veto", 0)
+    if vetoes:
+        withheld = sum(r.get("usd_withheld", 0.0) for r in rows
+                       if r.get("type") == "veto")
+        print(f"\n  {vetoes} guardrail veto(es) recorded, ${withheld:.2f} of savings")
+        print( "  withheld before anyone saw them — audit evidence, NOT training")
+        print( "  labels. Nobody expressed a preference about a card never shown.")
 
     data = build(rows)
     if not data:

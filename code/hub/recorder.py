@@ -233,10 +233,27 @@ class SessionRecorder:
 
     def refusal(self, reco_id: str, load_key: str, action: str, reason: str,
                 gate: str) -> None:
-        """THE HARD NEGATIVE. The guardrail refused an action a human asked for."""
+        """THE HARD NEGATIVE. The guardrail refused an action a human ASKED FOR."""
         try:
             self._write({"type": "refusal", "reco_id": reco_id, "load_key": load_key,
                          "action": action, "reason": reason, "gate": gate})
+        except Exception:
+            pass
+
+    def veto(self, reco_id: str, load_key: str, reason: str, gate: str,
+             usd: float = 0.0) -> None:
+        """A finding the guardrail withheld before anyone saw it.
+
+        Deliberately NOT a `refusal` row, though both come from R7. A refusal is
+        a human asking and being told no — a genuine preference signal. A veto is
+        advice that was never offered, so nobody expressed anything about it, and
+        scoring it as a negative would teach a relevance model that people
+        dislike recommendations they were never shown. Audit evidence, not a
+        label; `tools/build_dataset.py` reads it as such.
+        """
+        try:
+            self._write({"type": "veto", "reco_id": reco_id, "load_key": load_key,
+                         "reason": reason, "gate": gate, "usd_withheld": usd})
         except Exception:
             pass
 

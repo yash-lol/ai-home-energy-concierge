@@ -14,7 +14,7 @@ You will have a Qualcomm-internal LLM instead of Claude. Assume it is **less cap
 
 > If an answer comes back wrong, do not argue with it in follow-ups. Re-prompt from scratch with the failure mode named: *"Previous attempt used X, which fails because Y. Write it again using Z."* Weaker models spiral when you debate; they respond well to a clean restart.
 
-**Most of the code in `code/` is already written and tested (32/32 smoke checks).** Use these prompts to extend it, not to regenerate it. Prompts 1–10 document how the existing files were specified; Prompts 12–15 cover the remaining work.
+**Most of the code in `code/` is already written and tested (38/38 smoke checks).** Use these prompts to extend it, not to regenerate it. Prompts 1–10 document how the existing files were specified; Prompts 12–15 cover the remaining work.
 
 ---
 

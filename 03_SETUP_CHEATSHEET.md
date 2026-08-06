@@ -180,7 +180,7 @@ python hub/simulator.py --mode demo --speed 3
 ## 8. Verify everything
 
 ```bash
-python smoke_test.py       # 32 checks incl. the actuation loop and safety gate
+python smoke_test.py       # 38 checks incl. the actuation loop and safety gate
 python hub/benchmark.py    # the numbers for the 40-point criterion
 python hub/benchmark.py --markdown   # paste straight into README.md
 ```
