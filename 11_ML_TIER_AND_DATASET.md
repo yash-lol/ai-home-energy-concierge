@@ -154,17 +154,17 @@ well and know nothing.
 | `full` | temp + humidity + lux | 0.9786 | 0.9884 |
 | `no_light` | temp + humidity | 0.8608 | 0.8452 |
 
-**Relevance** (90 simulated days, 446 rows, 138 positives, chronological split):
+**Relevance** (90 simulated days, 423 rows, 155 positives, chronological split):
 
 | | acc | precision | recall | F1 | AUC |
 |---|---|---|---|---|---|
-| majority | 0.679 | 0.000 | 0.000 | 0.000 | 0.500 |
-| **by-cost** | 0.709 | 1.000 | 0.093 | 0.170 | **0.946** |
-| learned model | **0.813** | 0.636 | 0.977 | **0.771** | 0.945 |
+| majority | 0.583 | 0.000 | 0.000 | 0.000 | 0.500 |
+| **by-cost** | 0.622 | 0.857 | 0.113 | 0.200 | **0.930** |
+| learned model | **0.819** | 0.727 | 0.906 | **0.807** | 0.908 |
 
-It recovered every hidden preference (`presence_away +1.03`, `occupancy −1.03`,
-`usd +1.23`, `phantom_standby −0.54`, `hvac_with_window_open +0.38`,
-`peak_window_imminent +0.53`).
+It recovered every hidden preference (`presence_away +1.68`, `usd +1.02`,
+`occupancy −0.58`, `unoccupied_lights_on −0.72`, `hvac_with_window_open +0.63`,
+`peak_window_imminent +0.35`).
 
 **But the result is a draw on ranking, and that is the finding.** The dollar
 figure the rules already compute is an excellent ordering; the model does not
@@ -174,6 +174,83 @@ comparison every run, flattering or not, and refuses to train below 30 positives
 
 > A model that cannot beat the arithmetic already in the repo should not be
 > described as an improvement to it.
+
+---
+
+## The corpus now trains the board's detector too
+
+`tools/train_anomaly.py` (tier 1, the classifier that runs on the Dragonwing)
+carried **its own second household simulator** — a five-branch `if/elif` with a
+fixed 09:00 departure, no weekends, no weather. It disagreed with the household
+in `generate_sessions.py`, so the board's model learned a rhythm nothing else in
+the repo believes in.
+
+It now reads the recorded session corpus — the same `tick` rows `hub/recorder.py`
+writes while the live hub runs — so there is one household, and when real
+sessions exist the same path trains on them unchanged. The inline generator
+survives as a fallback for a fresh clone with no corpus.
+
+**The normal class is recorded ticks where no rule fired.** The corpus contains
+genuine waste (that household forgets lights), including the exact situation the
+`lights_daylight_away` anomaly class describes — labelling every tick "normal"
+would have put a hard label conflict in the training set. Ticks with an open
+finding are excluded: R1–R8 already own them. That drops 6,970 of 25,920.
+
+### Two defects the corpus had, found by training on it
+
+| | before | after |
+|---|---|---|
+| `occupancy` vs `presence_away` correlation | **−1.000** | −0.280 |
+| lights on, 00:00–05:00 | **100.0%** of ticks | 0.0% |
+
+The generator set `presence = "home" if occupancy else "away"`, making the two
+features a single bit wearing two hats — nine features carrying eight bits, with
+one effect split across two large weights that swamped everything else. They are
+different questions: presence is the geofence, occupancy is *this room*. A house
+with someone asleep upstairs is home with an empty living room. And nobody
+sleeps with the living-room lights on every night for 90 nights.
+
+### What that exposed about the shipped model
+
+The old evaluation used a **random shuffle** over four hand-written anomaly
+templates, so a held-out anomaly was a near-copy of a trained one. It reported
+0.9714. Measured against 18,959 realistic no-rule-fired ticks, the model those
+weights came from flags **33.4%** of them — it catches the demo scenario largely
+because it fires at almost everything.
+
+The evaluation is now: split **by day**, **per-class recall**, and
+**leave-one-class-out** (retrain with a whole class removed, score the unseen
+one). LOCO is the number to quote when asked whether it generalises past its own
+templates; it is much lower than the pooled figure, and both print every run.
+
+| | shipped weights | retrained on the corpus |
+|---|---|---|
+| false positives on ordinary ticks | **33.4%** | **1.7%** |
+| holdout precision | 0.947 *(inflated)* | 0.793 |
+| unseen-class recall (LOCO) | not measured | 0.61 |
+| catches the 3 AM demo case | yes | **no — 0.613 vs a 0.70 threshold** |
+
+**Nothing was shipped.** `train_anomaly.py` now runs hub/anomaly.py's own
+scenarios against candidate weights *before writing*, and refuses if a state
+that must stay quiet starts firing or the motivating case stops firing. It
+refused. `hub/anomaly_model.py` is unchanged and the demo behaves as rehearsed.
+Retraining the evening before a demo should not be able to break the demo
+silently. `--no-gate` overrides, loudly.
+
+The open decision is the **operating point**, and it is a real tradeoff rather
+than a bug — measured on held-out days:
+
+| threshold | false positives | catches 3 AM case | overall recall |
+|---|---|---|---|
+| 0.60 | 5.1% | **yes** | 0.87 |
+| 0.65 | 3.5% | no | 0.82 |
+| **0.70 (current)** | 1.7% | no | 0.73 |
+| *shipped weights @ 0.70* | *33.4%* | *yes* | *1.00* |
+
+At 0.60 the retrained model catches the demo case with a **6.5× lower**
+false-positive rate than what is on disk. That is a change to `ANOMALY_THRESHOLD`
+in a file the board imports, so it is being left as a decision, not made
+quietly.
 
 ---
 
@@ -216,6 +293,11 @@ python hub/occupancy_model.py          # replays the held-out split through infe
 python tools/generate_sessions.py --days 90 --seed 11
 python tools/build_dataset.py
 python tools/train_relevance.py
+
+# the same corpus -> the board's tier-1 detector (gated; refuses on regression)
+python tools/train_anomaly.py
+python tools/train_anomaly.py --synthetic-only   # ignore the corpus
+python tools/train_anomaly.py --no-gate          # write over a gate failure
 
 # demo R8 without waiting for 3:30 PM
 curl -X POST localhost:8000/api/clock -H "Content-Type: application/json" \

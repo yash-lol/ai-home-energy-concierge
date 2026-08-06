@@ -100,15 +100,44 @@ class Household:
         self.leave_h = rng.gauss(8.5, 0.4)
         self.return_h = rng.gauss(18.0, 0.6)
         self.bedtime_h = rng.gauss(23.0, 0.5)
+        self.wake_h = rng.gauss(7.0, 0.5)
         self.forgets_lights_p = rng.uniform(0.25, 0.55)
         self.runs_dryer_p = rng.uniform(0.3, 0.6)
+        # How often, while awake and in the house, they are actually in THIS
+        # room rather than the kitchen or the bedroom.
+        self.in_room_p = rng.uniform(0.55, 0.8)
 
-    def occupancy(self, dt: datetime) -> bool:
+    def at_home(self, dt: datetime) -> bool:
+        """Geofence: is anyone in the HOUSE. This is what `user.presence` means.
+
+        Deliberately not the same question as `occupancy`, which is about this
+        one room — see the note on `asleep()`.
+        """
         h = dt.hour + dt.minute / 60.0
         weekend = dt.weekday() >= 5
         if weekend:
             return not (11.0 < h < 15.0 and self.rng.random() < 0.4)
         return not (self.leave_h < h < self.return_h)
+
+    def asleep(self, dt: datetime) -> bool:
+        """In bed — home, but not in the living room.
+
+        This is what separates presence from occupancy. An earlier version of
+        this generator set `presence = "home" if occupancy else "away"`, which
+        made the two perfectly anti-correlated: r = -1.000 across 18,704 ticks.
+        Every model trained on the corpus then had nine features carrying eight
+        bits, with one effect split across two weights that swamped everything
+        else — and "A/C running at 3 AM" could not be learned as unusual,
+        because `occupancy=1` argued it was a perfectly normal occupied room.
+
+        A house where someone is asleep upstairs is home AND has an empty living
+        room. That is both the truthful model and the one that makes the demo's
+        motivating case actually anomalous.
+        """
+        h = dt.hour + dt.minute / 60.0
+        if self.bedtime_h >= 24.0:
+            return h < self.wake_h
+        return h >= self.bedtime_h or h < self.wake_h
 
     def lux(self, dt: datetime) -> int:
         """Daylight curve, peaking near 13:00, with weather knocked off it."""
@@ -216,6 +245,7 @@ def generate(days: int, tick_min: int, seed: int, out_dir: Path) -> Path:
         f"{ROOM}/standby": {"state": "on", "watts": 12.0, "on_since": sim_now.timestamp()},
     }
     prev_presence = "home"
+    in_room = True               # sticky room presence, see the tick loop
     dryer_until = None
     pending = []                 # decisions the occupant has not made yet
     seen_ids = set()
@@ -225,8 +255,21 @@ def generate(days: int, tick_min: int, seed: int, out_dir: Path) -> Path:
     total_ticks = days * 24 * 60 // tick_min
     for _ in range(total_ticks):
         now = sim_now.timestamp()
-        occupied = home.occupancy(sim_now)
-        presence = "home" if occupied else "away"
+
+        # presence = the geofence (in the house). occupancy = in THIS room.
+        # They are different questions and the corpus has to say so, or the two
+        # features collapse into one — see Household.asleep().
+        at_home = home.at_home(sim_now)
+        asleep = home.asleep(sim_now)
+        if not at_home or asleep:
+            occupied = False
+        elif rng.random() < 0.9:
+            occupied = in_room          # rooms are sticky; people do not teleport
+        else:
+            occupied = rng.random() < home.in_room_p
+        in_room = occupied
+
+        presence = "home" if at_home else "away"
         departed = (presence == "away" and prev_presence == "home")
         if presence != prev_presence:
             presence_ts = now
@@ -249,10 +292,19 @@ def generate(days: int, tick_min: int, seed: int, out_dir: Path) -> Path:
                 lights_on = True
             elif lights_on and lux > 400 and rng.random() < 0.06:
                 lights_on = False        # they eventually notice the daylight
+        elif asleep and at_home:
+            # Going to bed. Without this the corpus had the lights on for
+            # 100.0% of every hour from 19:00 to 07:00 — nobody sleeps with the
+            # living-room lights on every night, and a "normal" class that says
+            # otherwise teaches the detector that a lit empty room at 3 AM is
+            # ordinary. They usually turn them off; sometimes they forget, and
+            # that residue is real R1 waste rather than a modelling accident.
+            if lights_on and rng.random() < 0.85:
+                lights_on = False
         elif departed:
             # Walking out and leaving them on is the whole reason R1 exists.
             lights_on = lights_on and rng.random() < home.forgets_lights_p
-        # While away they stay however they were left.
+        # Otherwise they stay however they were left.
         want_lights = lights_on
 
         temp_no_ac = home.temp(sim_now, ac_on=False)
