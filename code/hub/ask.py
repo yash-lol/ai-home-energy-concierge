@@ -77,6 +77,14 @@ ANSWERING "WHY" QUESTIONS:
   invented reason, and an invented one will be flagged as unverified anyway."""
 
 
+# How many past events are rendered into the digest. Load-bearing: the answer
+# paths may only cite events INSIDE this window, because only these have their
+# figures registered in the `allowed` map. Cite an event outside it and the
+# provenance verifier flags a correct answer as unverified — a red badge on a
+# true statement, which teaches everyone to ignore the badge.
+HISTORY_LIMIT = 5
+
+
 def _clock(ts) -> str:
     """HH:MM for a timestamp, or '' when it is missing or unusable."""
     try:
@@ -118,11 +126,16 @@ def _history_lines(state: Dict, allowed: Dict[str, str]) -> List[str]:
     """
     lines: List[str] = []
 
-    for ev in (state.get("realized_events") or [])[:5]:
+    for i, ev in enumerate((state.get("realized_events") or [])[:HISTORY_LIMIT]):
         when = _clock(ev.get("ts"))
         rid = ev.get("reco_id", "?")
+        # Key by INDEX as well as id. Finding ids are stable, so the same
+        # recommendation approved five times shares one reco_id — and keying on
+        # id alone meant each event overwrote the last, leaving `allowed`
+        # holding only the OLDEST figure while the answer quoted the newest.
+        # The verifier then flagged a correct deterministic answer.
         if ev.get("usd") is not None:
-            allowed[f"{rid}.realized_usd"] = f"{ev['usd']}"
+            allowed[f"{rid}.realized_usd.{i}"] = f"{ev['usd']}"
         kind = ev.get("kind", "detected")
         verb = "avoided" if kind == "anticipated" else "saved"
         lines.append(
@@ -130,7 +143,7 @@ def _history_lines(state: Dict, allowed: Dict[str, str]) -> List[str]:
             f"(rule {ev.get('rule_name','?')}, {ev.get('room','')}) — "
             f"{verb} ${ev.get('usd', 0)}")
 
-    for a in (state.get("actuations") or [])[:5]:
+    for a in (state.get("actuations") or [])[:HISTORY_LIMIT]:
         when = _clock(a.get("ts"))
         ok = a.get("ok")
         result = "confirmed" if ok is not False else "FAILED"
@@ -285,7 +298,7 @@ def _explain_load(load_key: str, state: Dict) -> str:
     # Match the decision to THIS load, by load_key. Anything looser answers the
     # wrong question confidently, which is the failure mode this whole tier is
     # supposed to avoid.
-    for ev in (state.get("realized_events") or []):
+    for ev in (state.get("realized_events") or [])[:HISTORY_LIMIT]:
         if ev.get("load_key") != load_key:
             continue
         act = next((a for a in (state.get("actuations") or [])
